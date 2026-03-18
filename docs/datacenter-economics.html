@@ -894,6 +894,26 @@ const fmtDollar = (n, d=1) => '$' + fmt(n, d);
 
 function applyScenario(key) { update(); }
 
+const HBM_BASELINE_GW = 11;
+
+function computeSupply(inputs) {
+  const gwFromEuv = (inputs.asmlYear * inputs.aiPct) / inputs.euvPerGw;
+  const gwFromHbm = HBM_BASELINE_GW * inputs.hbmIndex;
+  const gwFromPower = inputs.powerGw;
+
+  const ceilings = { euv: gwFromEuv, hbm: gwFromHbm, power: gwFromPower };
+  const supplyCeiling = Math.min(gwFromEuv, gwFromHbm, gwFromPower);
+
+  let binding = 'euv';
+  if (gwFromHbm <= gwFromEuv && gwFromHbm <= gwFromPower) binding = 'hbm';
+  if (gwFromPower <= gwFromEuv && gwFromPower <= gwFromHbm) binding = 'power';
+
+  const actualNewGw = Math.min(supplyCeiling, inputs.demandGw);
+  const tightnessRatio = inputs.demandGw / supplyCeiling;
+
+  return { ceilings, supplyCeiling, binding, actualNewGw, tightnessRatio };
+}
+
 function getInputs() {
   return {
     capex: +$('capex').value,
@@ -913,68 +933,71 @@ function getInputs() {
   };
 }
 
-function renderPipeline(inputs) {
-  const euvCost = inputs.euvPerGw * 0.375; // ~$375M per tool
+// All innerHTML usage in this file is safe: content is derived from numeric slider
+// values, hardcoded constants, and static strings. No user-provided text input.
+function renderPipeline(inputs, supply) {
+  const euvCost = inputs.euvPerGw * 0.375;
+
+  let bindingIndex = 0; // EUV
+  if (supply.binding === 'hbm') bindingIndex = 2;
+  else if (supply.binding === 'power') bindingIndex = 3;
+  if (supply.tightnessRatio < 1.0) bindingIndex = 5; // overcapacity
+
   const stages = [
     { label: 'EUV Tools', value: inputs.euvPerGw.toFixed(1), unit: 'tool-years of capacity', cost: fmtDollar(euvCost) + ' per GW', color: 'var(--accent-purple)' },
-    { label: 'Logic Wafers', value: '55K', unit: '3nm wafers per GW', cost: 'TSMC → NVIDIA/Google', color: 'var(--accent-blue)' },
+    { label: 'Logic Wafers', value: '55K', unit: '3nm wafers per GW', cost: 'TSMC \u2192 NVIDIA/Google', color: 'var(--accent-blue)' },
     { label: 'Memory (HBM)', value: '170K', unit: 'DRAM wafers per GW', cost: '~30% of DC CapEx', color: 'var(--accent-cyan)' },
     { label: 'Data Center', value: fmtDollar(inputs.capex), unit: 'all-in CapEx per GW', cost: 'GPUs+HBM+net+power', color: 'var(--accent-green)' },
     { label: 'Compute Rental', value: fmtDollar(inputs.revenueGw) + '/yr', unit: 'cloud rev per GW', cost: 'hyperscaler margin', color: 'var(--accent-amber)' },
     { label: 'Token Revenue', value: fmtDollar(inputs.revenueGw / (1 - inputs.margin)) + '/yr', unit: 'lab rev per GW', cost: (inputs.margin * 100).toFixed(0) + '% lab margin', color: 'var(--accent-red)' },
   ];
 
-  $('pipeline').innerHTML = stages.map(s => `
-    <div class="pipe-stage">
-      <div class="pipe-label">${s.label}</div>
-      <div class="pipe-value" style="color:${s.color}">${s.value}</div>
-      <span class="pipe-unit">${s.unit}</span>
-      <div class="pipe-cost">${s.cost}</div>
-    </div>
-  `).join('');
+  $('pipeline').innerHTML = stages.map((s, i) => '<div class="pipe-stage ' + (i === bindingIndex ? 'binding' : '') + '">'
+    + '<div class="pipe-label">' + s.label + '</div>'
+    + '<div class="pipe-value" style="color:' + s.color + '">' + s.value + '</div>'
+    + '<span class="pipe-unit">' + s.unit + '</span>'
+    + '<div class="pipe-cost">' + s.cost + '</div>'
+    + '</div>').join('');
 }
 
-function renderMetrics(inputs) {
+function renderMetrics(inputs, supply) {
   const paybackYears = inputs.capex / inputs.revenueGw;
   const labRevPerGw = inputs.revenueGw / (1 - inputs.margin);
   const labProfitPerGw = labRevPerGw - inputs.revenueGw;
   const euvCostPerGw = inputs.euvPerGw * 0.375;
   const leverage = inputs.capex / euvCostPerGw;
 
-  $('per-gw-metrics').innerHTML = `
-    <div class="metric-row"><span class="metric-label">CapEx (all-in)</span><span class="metric-value neutral">${fmtDollar(inputs.capex)}</span></div>
-    <div class="metric-row"><span class="metric-label">EUV tooling cost</span><span class="metric-value blue">${fmtDollar(euvCostPerGw)}</span></div>
-    <div class="metric-row"><span class="metric-label">Leverage ratio (CapEx / EUV)</span><span class="metric-value highlight">${leverage.toFixed(0)}×</span></div>
-    <div class="metric-row"><span class="metric-label">Cloud rental revenue / yr</span><span class="metric-value neutral">${fmtDollar(inputs.revenueGw)}/yr</span></div>
-    <div class="metric-row"><span class="metric-label">Lab token revenue / yr</span><span class="metric-value positive">${fmtDollar(labRevPerGw)}/yr</span></div>
-    <div class="metric-row"><span class="metric-label">Lab gross profit / yr</span><span class="metric-value positive">${fmtDollar(labProfitPerGw)}/yr</span></div>
-    <div class="metric-row"><span class="metric-label">Simple payback (cloud)</span><span class="metric-value ${paybackYears > 6 ? 'negative' : 'highlight'}">${paybackYears.toFixed(1)} years</span></div>
-    <div class="metric-row"><span class="metric-label">Profit years begin</span><span class="metric-value ${paybackYears > 6 ? 'negative' : 'positive'}">Year ${Math.ceil(paybackYears) + 1}+</span></div>
-  `;
+  const mr = (label, val, cls) => '<div class="metric-row"><span class="metric-label">' + label + '</span><span class="metric-value ' + cls + '">' + val + '</span></div>';
 
-  // Ceiling
-  const gwPerYear = (inputs.asmlYear * inputs.aiPct) / inputs.euvPerGw;
-  const totalCapex = gwPerYear * inputs.capex;
-  const totalRevenue = gwPerYear * inputs.revenueGw;
-  const samWants = 52;
-  const totalGwFromAllTools = inputs.asmlYear / inputs.euvPerGw; // all chips, not just AI
-  const samShareThisYear = (samWants / totalGwFromAllTools) * 100;
-  // Dylan's 2030 math: ~100 tools/yr, ~700 cumulative, ~200 GW total fab capacity.
-  // Editorial estimate independent of slider values (which represent current-year production).
-  const samShare2030 = (samWants / 200) * 100; // ~26%
+  $('per-gw-metrics').innerHTML =
+    mr('CapEx (all-in)', fmtDollar(inputs.capex), 'neutral')
+    + mr('EUV tooling cost', fmtDollar(euvCostPerGw), 'blue')
+    + mr('Leverage ratio (CapEx / EUV)', leverage.toFixed(0) + '\u00d7', 'highlight')
+    + mr('Cloud rental revenue / yr', fmtDollar(inputs.revenueGw) + '/yr', 'neutral')
+    + mr('Lab token revenue / yr', fmtDollar(labRevPerGw) + '/yr', 'positive')
+    + mr('Lab gross profit / yr', fmtDollar(labProfitPerGw) + '/yr', 'positive')
+    + mr('Simple payback (cloud)', paybackYears.toFixed(1) + ' years', paybackYears > 6 ? 'negative' : 'highlight')
+    + mr('Profit years begin', 'Year ' + (Math.ceil(paybackYears) + 1) + '+', paybackYears > 6 ? 'negative' : 'positive');
 
-  const samExceedsYear = samShareThisYear > 100;
+  // Multi-constraint ceiling
+  const c = supply.ceilings;
+  const bc = (key) => key === supply.binding ? 'highlight' : 'neutral';
+  const totalCapex = supply.actualNewGw * inputs.capex;
+  const totalRevenue = supply.actualNewGw * inputs.revenueGw;
+  const tr = supply.tightnessRatio;
+  const trClass = tr < 0.8 ? 'positive' : tr > 1.2 ? 'negative' : 'highlight';
+  const trLabel = tr < 0.8 ? 'loose' : tr > 1.2 ? 'severe' : 'moderate';
 
-  $('ceiling-metrics').innerHTML = `
-    <div class="metric-row"><span class="metric-label">ASML tools produced / yr</span><span class="metric-value blue">${inputs.asmlYear}</span></div>
-    <div class="metric-row"><span class="metric-label">AI-allocated tools</span><span class="metric-value blue">${Math.round(inputs.asmlYear * inputs.aiPct)}</span></div>
-    <div class="metric-row"><span class="metric-label">Max new AI GW / yr</span><span class="metric-value highlight">${gwPerYear.toFixed(1)} GW</span></div>
-    <div class="metric-row"><span class="metric-label">Total new GW this year (all uses)</span><span class="metric-value neutral">${totalGwFromAllTools.toFixed(1)} GW</span></div>
-    <div class="metric-row"><span class="metric-label">Implied AI CapEx required</span><span class="metric-value neutral">${fmtDollar(totalCapex)}</span></div>
-    <div class="metric-row"><span class="metric-label">Implied AI rental revenue</span><span class="metric-value positive">${fmtDollar(totalRevenue)}/yr</span></div>
-    <div class="metric-row"><span class="metric-label">Sam wants 52 GW (this yr's tools)</span><span class="metric-value negative">${samShareThisYear.toFixed(0)}% — ${samExceedsYear ? 'impossible today' : 'tight'}</span></div>
-    <div class="metric-row"><span class="metric-label">Sam wants 52 GW (2030 · ~200 GW)</span><span class="metric-value highlight">${samShare2030.toFixed(0)}% — feasible per Dylan</span></div>
-  `;
+  $('ceiling-metrics').innerHTML =
+    mr('GW ceiling \u2014 EUV', c.euv.toFixed(1) + ' GW', bc('euv'))
+    + mr('GW ceiling \u2014 HBM', c.hbm.toFixed(1) + ' GW', bc('hbm'))
+    + mr('GW ceiling \u2014 Power', c.power.toFixed(1) + ' GW', bc('power'))
+    + mr('Supply ceiling (binding)', supply.supplyCeiling.toFixed(1) + ' GW', 'highlight')
+    + mr('Demand', inputs.demandGw + ' GW', 'blue')
+    + mr('Tightness ratio', tr.toFixed(2) + '\u00d7 \u2014 ' + trLabel, trClass)
+    + mr('Actual new GW / yr', supply.actualNewGw.toFixed(1) + ' GW', 'highlight')
+    + mr('Implied AI CapEx', fmtDollar(totalCapex), 'neutral')
+    + mr('Implied AI rental revenue', fmtDollar(totalRevenue) + '/yr', 'positive');
 }
 
 function renderBottleneck() {
@@ -1106,8 +1129,10 @@ function update() {
   $('labor-display').textContent = inputs.laborSeverity;
   $('permit-display').textContent = inputs.permitSeverity;
 
-  renderPipeline(inputs);
-  renderMetrics(inputs);
+  const supply = computeSupply(inputs);
+
+  renderPipeline(inputs, supply);
+  renderMetrics(inputs, supply);
   renderBottleneck();
   renderTimeline();
   renderComparison();
