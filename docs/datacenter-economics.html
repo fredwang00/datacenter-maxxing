@@ -868,6 +868,14 @@
   <div class="timeline" id="timeline"></div>
 </div>
 
+<!-- Jevons Reality Check -->
+<div class="outputs" style="margin-top:2.5rem">
+  <div class="output-panel" style="grid-column: 1 / -1">
+    <h3>2030 Reality Check (Jevons Paradox)</h3>
+    <div id="jevons-metrics" style="display:grid;grid-template-columns:1fr 1fr;gap:0 2rem"></div>
+  </div>
+</div>
+
 <!-- Anthropic vs OpenAI comparison -->
 <div class="controls-section">
   <h2>Lab Compute Position (Mid-2026)</h2>
@@ -1049,6 +1057,62 @@ function renderMetrics(inputs, supply) {
     + mr('Implied AI rental revenue', fmtDollar(totalRevenue) + '/yr', 'positive');
 }
 
+function computeJevons(inputs, timeline) {
+  var entry2030 = timeline.find(function(y) { return y.year === 2030; });
+  var cumulativeNewGw = entry2030 ? entry2030.cumulativeNew : 0;
+  var years = 4; // compounding intervals 2026->2030
+
+  var totalCapex = cumulativeNewGw * inputs.capex;
+  var requiredAnnualRev = totalCapex / inputs.targetPayback;
+
+  var priceMultiplier = Math.pow(1 - inputs.priceDecay, years);
+  var halfLives = years * Math.log(1 - inputs.priceDecay) / Math.log(0.5);
+  var volumeMultiplier = Math.pow(inputs.elasticity, halfLives);
+
+  var effectiveRevMultiplier = priceMultiplier * volumeMultiplier;
+  var projectedRevPerGw = inputs.revenueGw * effectiveRevMultiplier;
+  var projectedAnnualRev = cumulativeNewGw * projectedRevPerGw;
+
+  var revenueGap = projectedAnnualRev - requiredAnnualRev;
+  var isSustainable = revenueGap >= 0;
+  var pctGlobalGdp = (requiredAnnualRev / 120000) * 100;
+
+  return {
+    cumulativeNewGw: cumulativeNewGw,
+    totalCapex: totalCapex,
+    requiredAnnualRev: requiredAnnualRev,
+    priceMultiplier: priceMultiplier,
+    volumeMultiplier: volumeMultiplier,
+    projectedAnnualRev: projectedAnnualRev,
+    isSustainable: isSustainable,
+    pctGlobalGdp: pctGlobalGdp,
+  };
+}
+
+function renderJevons(jevons) {
+  var j = jevons;
+  var gdpClass = j.pctGlobalGdp > 3 ? 'negative' : 'neutral';
+  var statusClass = j.isSustainable ? 'positive' : 'negative';
+  var statusLabel = j.isSustainable ? 'Escape Velocity' : 'CapEx Death Spiral';
+  var volLabel = j.volumeMultiplier >= 1000 ? fmt(j.volumeMultiplier) + 'x' : j.volumeMultiplier.toFixed(1) + 'x';
+
+  var mr = function(label, val, cls) {
+    return '<div class="metric-row"><span class="metric-label">' + label + '</span><span class="metric-value ' + cls + '">' + val + '</span></div>';
+  };
+
+  $('jevons-metrics').innerHTML =
+    '<div>'
+    + mr('Cumulative CapEx (2026-2030)', fmtDollar(j.totalCapex), 'neutral')
+    + mr('Required annual revenue', fmtDollar(j.requiredAnnualRev) + '/yr', 'highlight')
+    + mr('Required GDP capture', j.pctGlobalGdp.toFixed(2) + '%', gdpClass)
+    + '</div><div>'
+    + mr('2030 cost of intelligence', (j.priceMultiplier * 100).toFixed(1) + '% of today', 'blue')
+    + mr('2030 token volume demand', volLabel + ' today', 'blue')
+    + mr('Projected 2030 annual revenue', fmtDollar(j.projectedAnnualRev) + '/yr', statusClass)
+    + mr('Market status', statusLabel, statusClass)
+    + '</div>';
+}
+
 function renderBottleneck(inputs, supply) {
   const segments = [
     { cls: 'seg-euv', label: 'EUV', tightness: inputs.demandGw / supply.ceilings.euv },
@@ -1189,6 +1253,8 @@ function update() {
   renderBottleneck(inputs, supply);
   const timeline = computeTimeline(inputs);
   renderTimeline(timeline);
+  const jevons = computeJevons(inputs, timeline);
+  renderJevons(jevons);
   renderComparison();
 }
 
