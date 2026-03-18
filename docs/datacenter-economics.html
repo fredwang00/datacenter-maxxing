@@ -509,12 +509,160 @@
 
   .footnote a { color: var(--accent-blue); text-decoration: none; }
 
+  /* Scenario Presets */
+  .preset-row {
+    display: flex;
+    gap: 0.75rem;
+    margin-bottom: 2rem;
+    flex-wrap: wrap;
+  }
+
+  .preset-btn {
+    flex: 1;
+    min-width: 140px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    text-align: left;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .preset-btn::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: transparent;
+    transition: background 0.3s ease;
+  }
+
+  .preset-btn:hover {
+    background: var(--surface2);
+    transform: translateY(-2px);
+  }
+
+  .preset-btn.base::before { background: var(--accent-blue); }
+  .preset-btn.bull::before { background: var(--accent-green); }
+  .preset-btn.bear::before { background: var(--accent-red); }
+  .preset-btn.shock::before { background: var(--accent-amber); }
+
+  .preset-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 0.25rem;
+  }
+
+  .preset-desc {
+    font-size: 0.65rem;
+    color: var(--text-dim);
+    line-height: 1.3;
+  }
+
+  /* Stock Sensitivity Matrix */
+  .matrix-tabs {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .matrix-tab {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .matrix-tab:hover {
+    border-color: var(--accent-blue);
+    color: var(--text);
+  }
+
+  .matrix-tab.active {
+    background: var(--glow-blue);
+    border-color: var(--accent-blue);
+    color: var(--accent-blue);
+    font-weight: 600;
+  }
+
+  .matrix-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 1rem;
+  }
+
+  .matrix-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.25rem;
+  }
+
+  .matrix-card h4 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 0.75rem;
+  }
+
+  .matrix-card.winners h4 { color: var(--accent-green); }
+  .matrix-card.losers h4 { color: var(--accent-red); }
+  .matrix-card.symptoms h4 { color: var(--accent-amber); }
+
+  .matrix-list {
+    list-style: none;
+    font-size: 0.85rem;
+    color: var(--text);
+  }
+
+  .matrix-list li {
+    margin-bottom: 0.4rem;
+    padding-left: 1rem;
+    position: relative;
+  }
+
+  .matrix-list li::before {
+    content: '\2192';
+    position: absolute;
+    left: 0;
+    color: var(--text-dim);
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* Pipeline binding highlight */
+  .pipe-stage.binding {
+    border-color: var(--accent-amber);
+    box-shadow: 0 0 15px rgba(245, 158, 11, 0.2);
+  }
+
+  /* Bottleneck dimming for loose constraints */
+  .bottleneck-segment.loose {
+    opacity: 0.4;
+  }
+
+  /* Tightness indicator badges */
+  .bn-hbm { background: rgba(74, 158, 255, 0.15); color: var(--accent-blue); }
+  .bn-monetization { background: rgba(239, 68, 68, 0.15); color: var(--accent-red); }
+
   /* Responsive */
   @media (max-width: 900px) {
     .pipeline { grid-template-columns: repeat(3, 1fr); }
     .outputs, .comparison { grid-template-columns: 1fr; }
     .timeline { flex-wrap: wrap; }
     .year-col { min-width: 120px; }
+    .matrix-grid { grid-template-columns: 1fr; }
   }
 
   @media (max-width: 600px) {
