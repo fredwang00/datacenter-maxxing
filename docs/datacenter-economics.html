@@ -1270,21 +1270,25 @@ function renderTimeline(timeline) {
   }).join('');
 }
 
-function renderComparison() {
-  const maxGw = 8;
+function renderComparison(inputs, supply) {
+  var anthropicShare = 0.25;
+  var openaiShare = 0.30;
+  var anthropicGwEoy = 2 + anthropicShare * supply.actualNewGw;
+  var openaiGwEoy = 2.5 + openaiShare * supply.actualNewGw;
 
-  const data = {
+  var maxGw = Math.max(anthropicGwEoy, openaiGwEoy) * 1.2;
+  var maxArr = 30;
+
+  var data = {
     anthropic: {
-      gwNow: 2, gwEoy: 5.5, arr: 19, raised: 30,
-      strategy: 'Conservative → scrambling. Paying spot premiums, revenue-sharing through Bedrock/Vertex. Best model but compute-constrained.',
+      gwNow: 2, gwEoy: anthropicGwEoy, arr: 19, raised: 30,
+      strategy: 'Conservative \u2192 scrambling. Paying spot premiums, revenue-sharing through Bedrock/Vertex. Best model but compute-constrained.',
     },
     openai: {
-      gwNow: 2.5, gwEoy: 6.5, arr: 25, raised: 110,
+      gwNow: 2.5, gwEoy: openaiGwEoy, arr: 25, raised: 110,
       strategy: 'Aggressive from day one. Locked 5-year deals with CoreWeave, Oracle, SoftBank. Better margins on compute.',
     }
   };
-
-  const maxArr = 30;
 
   $('comparison').innerHTML = `
     <div class="company-card">
@@ -1296,7 +1300,7 @@ function renderComparison() {
         </div>
         <div class="bar-row">
           <span class="bar-label">GW EOY '26</span>
-          <div class="bar-track"><div class="bar-fill bar-anthropic" style="width:${(data.anthropic.gwEoy/maxGw)*100}%">${data.anthropic.gwEoy} GW</div></div>
+          <div class="bar-track"><div class="bar-fill bar-anthropic" style="width:${(data.anthropic.gwEoy/maxGw)*100}%">${data.anthropic.gwEoy.toFixed(1)} GW</div></div>
         </div>
         <div class="bar-row">
           <span class="bar-label">ARR (Mar '26)</span>
@@ -1323,7 +1327,7 @@ function renderComparison() {
         </div>
         <div class="bar-row">
           <span class="bar-label">GW EOY '26</span>
-          <div class="bar-track"><div class="bar-fill bar-openai" style="width:${(data.openai.gwEoy/maxGw)*100}%">${data.openai.gwEoy} GW</div></div>
+          <div class="bar-track"><div class="bar-fill bar-openai" style="width:${(data.openai.gwEoy/maxGw)*100}%">${data.openai.gwEoy.toFixed(1)} GW</div></div>
         </div>
         <div class="bar-row">
           <span class="bar-label">ARR (Feb '26)</span>
@@ -1373,7 +1377,7 @@ function update() {
   const jevons = computeJevons(inputs, timeline);
   renderJevons(jevons);
   renderMatrix(supply);
-  renderComparison();
+  renderComparison(inputs, supply);
 }
 
 // Bind all sliders
