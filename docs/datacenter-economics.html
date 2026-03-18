@@ -876,6 +876,13 @@
   </div>
 </div>
 
+<!-- Stock Sensitivity Matrix -->
+<div class="controls-section">
+  <h2>Public Markets: Stock Sensitivity Matrix</h2>
+  <div class="matrix-tabs" id="matrix-tabs"></div>
+  <div class="matrix-grid" id="matrix-content"></div>
+</div>
+
 <!-- Anthropic vs OpenAI comparison -->
 <div class="controls-section">
   <h2>Lab Compute Position (Mid-2026)</h2>
@@ -1154,6 +1161,75 @@ function renderJevons(jevons) {
     + '</div>';
 }
 
+var MARKET_SCENARIOS = {
+  euv: {
+    label: 'EUV & Fab Tight',
+    winners: ['TSMC (Pricing power, margin expansion)', 'ASML (Backlog locked, cash flow)', 'NVIDIA (Allocation king)'],
+    losers: ['Lower-tier ASIC projects', 'Consumer electronics (Apple/Qualcomm margin hit)', 'AMD (If unable to secure N3/N2)'],
+    symptoms: ['Foundry price hikes leaked to press', 'Smartphone chip delays', 'Extended lead times on semi-cap equipment'],
+  },
+  hbm: {
+    label: 'HBM / Memory Tight',
+    winners: ['SK Hynix (First-mover advantage)', 'Micron (Margin catch-up)', 'Amkor (Advanced packaging)'],
+    losers: ['Commodity DDR buyers (Price spikes)', 'Accelerators waiting on HBM pins', 'Datacenter CapEx budgets'],
+    symptoms: ['Massive DDR pricing spikes', 'GPU shipments stall despite logic availability', 'Wafer reallocations from consumer to server'],
+  },
+  power: {
+    label: 'Power & DC Tight',
+    winners: ['Electrical equipment (VRT, ETN, PWR)', 'Independent Power Producers (CEG, VST)', 'Asset-rich neoclouds (CoreWeave)'],
+    losers: ['Hyperscalers without secured sites', 'Model labs stuck waiting for compute', 'Legacy enterprise cloud migrations'],
+    symptoms: ['Transformers take 3+ years to deliver', 'Nuclear/gas plant direct-connect deals', 'Stranded GPUs sitting in warehouses'],
+  },
+  demand: {
+    label: 'Monetization Tight (Jevons Failure)',
+    winners: ['Enterprise software incumbents (MSFT)', 'Value-add consulting/SI', 'Cheapest inference provider (META)'],
+    losers: ['GPU neoclouds (Spot pricing collapse)', 'NVIDIA (CapEx orders slashed)', 'Pure-play foundation model labs'],
+    symptoms: ['GPU hourly rental rates plummet', 'Payback periods stretch to 7+ years', 'Hyperscalers push out rack deliveries'],
+  },
+};
+
+var activeMatrixTab = 'hbm';
+
+function renderMatrixContent(key) {
+  var data = MARKET_SCENARIOS[key];
+  $('matrix-content').innerHTML =
+    '<div class="matrix-card winners"><h4>Long / Winners</h4><ul class="matrix-list">'
+    + data.winners.map(function(w) { return '<li>' + w + '</li>'; }).join('')
+    + '</ul></div>'
+    + '<div class="matrix-card losers"><h4>Short / Losers</h4><ul class="matrix-list">'
+    + data.losers.map(function(l) { return '<li>' + l + '</li>'; }).join('')
+    + '</ul></div>'
+    + '<div class="matrix-card symptoms"><h4>Early Warning Symptoms</h4><ul class="matrix-list" style="color:var(--text-dim)">'
+    + data.symptoms.map(function(s) { return '<li>' + s + '</li>'; }).join('')
+    + '</ul></div>';
+}
+
+function renderMatrix(supply) {
+  if (supply.tightnessRatio < 1.0) {
+    activeMatrixTab = 'demand';
+  } else {
+    activeMatrixTab = supply.binding;
+  }
+
+  $('matrix-tabs').innerHTML = Object.keys(MARKET_SCENARIOS).map(function(key) {
+    var s = MARKET_SCENARIOS[key];
+    return '<button class="matrix-tab ' + (key === activeMatrixTab ? 'active' : '') + '" onclick="setMatrixTab(\'' + key + '\')">' + s.label + '</button>';
+  }).join('');
+
+  renderMatrixContent(activeMatrixTab);
+}
+
+function setMatrixTab(key) {
+  activeMatrixTab = key;
+  document.querySelectorAll('.matrix-tab').forEach(function(el) { el.classList.remove('active'); });
+  var tabs = document.querySelectorAll('.matrix-tab');
+  var keys = Object.keys(MARKET_SCENARIOS);
+  for (var i = 0; i < keys.length; i++) {
+    if (keys[i] === key) tabs[i].classList.add('active');
+  }
+  renderMatrixContent(key);
+}
+
 function renderBottleneck(inputs, supply) {
   const segments = [
     { cls: 'seg-euv', label: 'EUV', tightness: inputs.demandGw / supply.ceilings.euv },
@@ -1296,6 +1372,7 @@ function update() {
   renderTimeline(timeline);
   const jevons = computeJevons(inputs, timeline);
   renderJevons(jevons);
+  renderMatrix(supply);
   renderComparison();
 }
 
