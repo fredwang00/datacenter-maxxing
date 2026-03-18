@@ -858,7 +858,7 @@
 
 <!-- Bottleneck visualization -->
 <div class="bottleneck-section controls-section">
-  <h2>Bottleneck Severity (2026 · editorial estimate)</h2>
+  <h2>Bottleneck Severity (2026)</h2>
   <div class="bottleneck-bar" id="bottleneck-bar"></div>
 </div>
 
@@ -1000,18 +1000,22 @@ function renderMetrics(inputs, supply) {
     + mr('Implied AI rental revenue', fmtDollar(totalRevenue) + '/yr', 'positive');
 }
 
-function renderBottleneck() {
+function renderBottleneck(inputs, supply) {
   const segments = [
-    { cls: 'seg-euv', label: 'EUV TOOLS', pct: 30 },
-    { cls: 'seg-memory', label: 'MEMORY / HBM', pct: 28 },
-    { cls: 'seg-power', label: 'POWER', pct: 15 },
-    { cls: 'seg-labor', label: 'LABOR', pct: 15 },
-    { cls: 'seg-permitting', label: 'PERMITTING', pct: 12 },
+    { cls: 'seg-euv', label: 'EUV', tightness: inputs.demandGw / supply.ceilings.euv },
+    { cls: 'seg-memory', label: 'HBM', tightness: inputs.demandGw / supply.ceilings.hbm },
+    { cls: 'seg-power', label: 'POWER', tightness: inputs.demandGw / supply.ceilings.power },
+    { cls: 'seg-labor', label: 'LABOR', tightness: inputs.laborSeverity / 100 },
+    { cls: 'seg-permitting', label: 'PERMITTING', tightness: inputs.permitSeverity / 100 },
   ];
 
-  $('bottleneck-bar').innerHTML = segments.map(s =>
-    `<div class="bottleneck-segment ${s.cls}" style="flex:${s.pct}">${s.label} ${s.pct}%</div>`
-  ).join('');
+  const total = segments.reduce(function(sum, s) { return sum + s.tightness; }, 0);
+
+  $('bottleneck-bar').innerHTML = segments.map(function(s) {
+    var pct = total > 0 ? ((s.tightness / total) * 100).toFixed(0) : 20;
+    var loose = s.tightness < 0.5 ? 'loose' : '';
+    return '<div class="bottleneck-segment ' + s.cls + ' ' + loose + '" style="flex:' + pct + '">' + s.label + ' ' + pct + '%</div>';
+  }).join('');
 }
 
 function renderTimeline() {
@@ -1133,7 +1137,7 @@ function update() {
 
   renderPipeline(inputs, supply);
   renderMetrics(inputs, supply);
-  renderBottleneck();
+  renderBottleneck(inputs, supply);
   renderTimeline();
   renderComparison();
 }
