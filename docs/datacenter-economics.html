@@ -1,0 +1,858 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>1 GW Data Center Economics</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=DM+Sans:wght@300;400;500;600;700&display=swap');
+
+  :root {
+    --bg: #0a0b0f;
+    --surface: #12141a;
+    --surface2: #1a1d26;
+    --surface3: #222633;
+    --border: #2a2e3a;
+    --text: #e8eaf0;
+    --text-dim: #8b90a0;
+    --text-muted: #555a6e;
+    --accent-blue: #4a9eff;
+    --accent-green: #34d399;
+    --accent-amber: #f59e0b;
+    --accent-red: #ef4444;
+    --accent-purple: #a78bfa;
+    --accent-cyan: #22d3ee;
+    --glow-blue: rgba(74, 158, 255, 0.15);
+    --glow-green: rgba(52, 211, 153, 0.15);
+    --glow-amber: rgba(245, 158, 11, 0.15);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    line-height: 1.6;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  .grain {
+    position: fixed; inset: 0; pointer-events: none; z-index: 9999;
+    opacity: 0.03;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  .container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 2rem 2rem 4rem;
+  }
+
+  header {
+    text-align: center;
+    padding: 3rem 0 2rem;
+    position: relative;
+  }
+
+  header::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 200px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent-blue), transparent);
+  }
+
+  h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 2.2rem;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 0.5rem;
+  }
+
+  .subtitle {
+    color: var(--text-dim);
+    font-size: 0.95rem;
+    font-weight: 300;
+  }
+
+  .sources {
+    display: flex;
+    justify-content: center;
+    gap: 1.5rem;
+    margin-top: 0.75rem;
+  }
+
+  .source-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    padding: 0.25rem 0.6rem;
+    border-radius: 3px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+
+  .source-allin { background: rgba(245, 158, 11, 0.15); color: var(--accent-amber); }
+  .source-dylan { background: rgba(74, 158, 255, 0.15); color: var(--accent-blue); }
+
+  /* Pipeline */
+  .pipeline {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 2px;
+    margin: 3rem 0 2rem;
+    position: relative;
+  }
+
+  .pipeline::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--accent-purple), var(--accent-blue), var(--accent-cyan), var(--accent-green), var(--accent-amber), var(--accent-red));
+    z-index: 0;
+    opacity: 0.3;
+  }
+
+  .pipe-stage {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 0.75rem;
+    text-align: center;
+    position: relative;
+    z-index: 1;
+    transition: all 0.3s ease;
+    cursor: default;
+  }
+
+  .pipe-stage:hover {
+    border-color: var(--accent-blue);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 20px rgba(74, 158, 255, 0.1);
+  }
+
+  .pipe-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+    margin-bottom: 0.5rem;
+  }
+
+  .pipe-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: var(--text);
+  }
+
+  .pipe-unit {
+    font-size: 0.65rem;
+    color: var(--text-dim);
+    display: block;
+    margin-top: 0.25rem;
+  }
+
+  .pipe-cost {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    color: var(--accent-amber);
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--border);
+  }
+
+  /* Controls */
+  .controls-section {
+    margin: 2.5rem 0;
+  }
+
+  .controls-section h2 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--text-dim);
+    margin-bottom: 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .controls-section h2::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent-blue);
+    box-shadow: 0 0 10px var(--accent-blue);
+  }
+
+  .controls-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1rem;
+  }
+
+  .control-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.25rem;
+    transition: border-color 0.3s;
+  }
+
+  .control-card:hover {
+    border-color: var(--surface3);
+  }
+
+  .control-label {
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    margin-bottom: 0.75rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+
+  .control-value-display {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 600;
+    color: var(--accent-cyan);
+    font-size: 0.85rem;
+  }
+
+  input[type="range"] {
+    width: 100%;
+    height: 4px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: var(--surface3);
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+  }
+
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--accent-blue);
+    box-shadow: 0 0 10px rgba(74, 158, 255, 0.4);
+    cursor: pointer;
+  }
+
+  .control-range-labels {
+    display: flex;
+    justify-content: space-between;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.6rem;
+    color: var(--text-muted);
+    margin-top: 0.4rem;
+  }
+
+  /* Output panels */
+  .outputs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+    margin-top: 2rem;
+  }
+
+  .output-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.5rem;
+  }
+
+  .output-panel h3 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-dim);
+    margin-bottom: 1.25rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .metric-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid rgba(42, 46, 58, 0.5);
+  }
+
+  .metric-row:last-child { border-bottom: none; }
+
+  .metric-label {
+    font-size: 0.85rem;
+    color: var(--text-dim);
+  }
+
+  .metric-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 600;
+    font-size: 0.95rem;
+  }
+
+  .metric-value.positive { color: var(--accent-green); }
+  .metric-value.negative { color: var(--accent-red); }
+  .metric-value.neutral { color: var(--text); }
+  .metric-value.highlight { color: var(--accent-amber); }
+  .metric-value.blue { color: var(--accent-blue); }
+
+  /* Bottleneck bar */
+  .bottleneck-section {
+    margin-top: 2.5rem;
+  }
+
+  .bottleneck-bar {
+    display: flex;
+    gap: 2px;
+    border-radius: 8px;
+    overflow: hidden;
+    height: 40px;
+    margin-top: 1rem;
+  }
+
+  .bottleneck-segment {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.6rem;
+    letter-spacing: 0.5px;
+    color: white;
+    transition: flex 0.5s ease;
+    position: relative;
+    overflow: hidden;
+    white-space: nowrap;
+    padding: 0 0.5rem;
+  }
+
+  .seg-euv { background: var(--accent-purple); }
+  .seg-memory { background: var(--accent-blue); }
+  .seg-power { background: var(--accent-green); }
+  .seg-labor { background: var(--accent-amber); }
+  .seg-permitting { background: var(--accent-red); }
+
+  /* Timeline */
+  .timeline-section {
+    margin-top: 2.5rem;
+  }
+
+  .timeline {
+    display: flex;
+    gap: 2px;
+    margin-top: 1rem;
+  }
+
+  .year-col {
+    flex: 1;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1rem 0.5rem;
+    text-align: center;
+    transition: all 0.3s;
+  }
+
+  .year-col.active {
+    border-color: var(--accent-blue);
+    background: var(--surface2);
+  }
+
+  .year-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    letter-spacing: 1px;
+  }
+
+  .year-gw {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: var(--accent-cyan);
+    margin: 0.5rem 0;
+  }
+
+  .year-gw span {
+    font-size: 0.6rem;
+    color: var(--text-muted);
+    font-weight: 400;
+  }
+
+  .year-detail {
+    font-size: 0.65rem;
+    color: var(--text-dim);
+    line-height: 1.4;
+  }
+
+  .year-bottleneck {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.55rem;
+    margin-top: 0.5rem;
+    padding: 0.2rem 0.4rem;
+    border-radius: 3px;
+    display: inline-block;
+  }
+
+  .bn-power { background: rgba(52, 211, 153, 0.15); color: var(--accent-green); }
+  .bn-chips { background: rgba(74, 158, 255, 0.15); color: var(--accent-blue); }
+  .bn-euv { background: rgba(167, 139, 250, 0.15); color: var(--accent-purple); }
+  .bn-fabs { background: rgba(245, 158, 11, 0.15); color: var(--accent-amber); }
+
+  /* Anthropic vs OpenAI */
+  .comparison {
+    margin-top: 2.5rem;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+  }
+
+  .company-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.5rem;
+  }
+
+  .company-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .company-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+
+  .anthropic-dot { background: var(--accent-amber); box-shadow: 0 0 8px rgba(245, 158, 11, 0.4); }
+  .openai-dot { background: var(--accent-green); box-shadow: 0 0 8px rgba(52, 211, 153, 0.4); }
+
+  .bar-chart {
+    margin-top: 0.75rem;
+  }
+
+  .bar-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.6rem;
+  }
+
+  .bar-label {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    width: 100px;
+    text-align: right;
+    flex-shrink: 0;
+  }
+
+  .bar-track {
+    flex: 1;
+    height: 18px;
+    background: var(--surface3);
+    border-radius: 3px;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.8s ease;
+    display: flex;
+    align-items: center;
+    padding-left: 0.5rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.6rem;
+    color: white;
+    font-weight: 500;
+  }
+
+  .bar-anthropic { background: linear-gradient(90deg, #f59e0b, #f97316); }
+  .bar-openai { background: linear-gradient(90deg, #34d399, #10b981); }
+
+  /* Footer note */
+  .footnote {
+    margin-top: 3rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border);
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-align: center;
+    line-height: 1.8;
+  }
+
+  .footnote a { color: var(--accent-blue); text-decoration: none; }
+
+  /* Responsive */
+  @media (max-width: 900px) {
+    .pipeline { grid-template-columns: repeat(3, 1fr); }
+    .outputs, .comparison { grid-template-columns: 1fr; }
+    .timeline { flex-wrap: wrap; }
+    .year-col { min-width: 120px; }
+  }
+
+  @media (max-width: 600px) {
+    .pipeline { grid-template-columns: repeat(2, 1fr); }
+    .controls-grid { grid-template-columns: 1fr; }
+    h1 { font-size: 1.5rem; }
+  }
+</style>
+</head>
+<body>
+<div class="grain"></div>
+<div class="container">
+
+<header>
+  <h1>Anatomy of 1 Gigawatt</h1>
+  <div class="subtitle">From EUV tools to inference revenue — the full supply chain math</div>
+  <div class="sources">
+    <span class="source-tag source-allin">All-In Pod · Brad Gerstner</span>
+    <span class="source-tag source-dylan">SemiAnalysis · Dylan Patel</span>
+  </div>
+</header>
+
+<!-- Pipeline visualization -->
+<div class="pipeline" id="pipeline"></div>
+
+<!-- Adjustable inputs -->
+<div class="controls-section">
+  <h2>Adjust Assumptions</h2>
+  <div class="controls-grid">
+    <div class="control-card">
+      <div class="control-label">
+        Data center CapEx per GW
+        <span class="control-value-display" id="capex-display">$50B</span>
+      </div>
+      <input type="range" id="capex" min="20" max="80" value="50" step="5">
+      <div class="control-range-labels"><span>$20B</span><span>$80B</span></div>
+    </div>
+    <div class="control-card">
+      <div class="control-label">
+        Annual rental revenue per GW
+        <span class="control-value-display" id="revenue-gw-display">$10B</span>
+      </div>
+      <input type="range" id="revenueGw" min="6" max="18" value="10" step="1">
+      <div class="control-range-labels"><span>$6B</span><span>$18B</span></div>
+    </div>
+    <div class="control-card">
+      <div class="control-label">
+        AI lab gross margin
+        <span class="control-value-display" id="margin-display">45%</span>
+      </div>
+      <input type="range" id="margin" min="25" max="65" value="45" step="5">
+      <div class="control-range-labels"><span>25%</span><span>65%</span></div>
+    </div>
+    <div class="control-card">
+      <div class="control-label">
+        EUV tool-years per GW (mfg capacity)
+        <span class="control-value-display" id="euv-display">3.5</span>
+      </div>
+      <input type="range" id="euvPerGw" min="2" max="6" value="3.5" step="0.5">
+      <div class="control-range-labels"><span>2.0</span><span>6.0</span></div>
+    </div>
+    <div class="control-card">
+      <div class="control-label">
+        ASML EUV tools / year (2026)
+        <span class="control-value-display" id="asml-display">70</span>
+      </div>
+      <input type="range" id="asmlYear" min="50" max="120" value="70" step="5">
+      <div class="control-range-labels"><span>50</span><span>120</span></div>
+    </div>
+    <div class="control-card">
+      <div class="control-label">
+        % EUV allocated to AI
+        <span class="control-value-display" id="aipct-display">60%</span>
+      </div>
+      <input type="range" id="aiPct" min="30" max="90" value="60" step="5">
+      <div class="control-range-labels"><span>30%</span><span>90%</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- Output panels -->
+<div class="outputs">
+  <div class="output-panel">
+    <h3>Per-Gigawatt Economics</h3>
+    <div id="per-gw-metrics"></div>
+  </div>
+  <div class="output-panel">
+    <h3>Annual Capacity Ceiling</h3>
+    <div id="ceiling-metrics"></div>
+  </div>
+</div>
+
+<!-- Bottleneck visualization -->
+<div class="bottleneck-section controls-section">
+  <h2>Bottleneck Severity (2026 · editorial estimate)</h2>
+  <div class="bottleneck-bar" id="bottleneck-bar"></div>
+</div>
+
+<!-- Timeline -->
+<div class="timeline-section controls-section">
+  <h2>Roadmap: Bottleneck Migration</h2>
+  <div class="timeline" id="timeline"></div>
+</div>
+
+<!-- Anthropic vs OpenAI comparison -->
+<div class="controls-section">
+  <h2>Lab Compute Position (Mid-2026)</h2>
+</div>
+<div class="comparison" id="comparison"></div>
+
+<div class="footnote">
+  Data sourced from All-In Podcast E215 (Brad Gerstner, Chamath Palihapitiya, David Sacks) and
+  Dwarkesh Podcast × Dylan Patel (SemiAnalysis).<br>
+  All figures are estimates and projections. Not financial advice. Built for intuition-building.
+</div>
+
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const fmt = (n, d=1) => {
+  if (Math.abs(n) >= 1000) return (n/1000).toFixed(1) + 'T';
+  if (Math.abs(n) >= 1) return n.toFixed(d) + 'B';
+  return (n * 1000).toFixed(0) + 'M';
+};
+
+const fmtDollar = (n, d=1) => '$' + fmt(n, d);
+
+function getInputs() {
+  return {
+    capex: +$('capex').value,
+    revenueGw: +$('revenueGw').value,
+    margin: +$('margin').value / 100,
+    euvPerGw: +$('euvPerGw').value,
+    asmlYear: +$('asmlYear').value,
+    aiPct: +$('aiPct').value / 100,
+  };
+}
+
+function renderPipeline(inputs) {
+  const euvCost = inputs.euvPerGw * 0.375; // ~$375M per tool
+  const stages = [
+    { label: 'EUV Tools', value: inputs.euvPerGw.toFixed(1), unit: 'tool-years of capacity', cost: fmtDollar(euvCost) + ' per GW', color: 'var(--accent-purple)' },
+    { label: 'Logic Wafers', value: '55K', unit: '3nm wafers per GW', cost: 'TSMC → NVIDIA/Google', color: 'var(--accent-blue)' },
+    { label: 'Memory (HBM)', value: '170K', unit: 'DRAM wafers per GW', cost: '~30% of DC CapEx', color: 'var(--accent-cyan)' },
+    { label: 'Data Center', value: fmtDollar(inputs.capex), unit: 'all-in CapEx per GW', cost: 'GPUs+HBM+net+power', color: 'var(--accent-green)' },
+    { label: 'Compute Rental', value: fmtDollar(inputs.revenueGw) + '/yr', unit: 'cloud rev per GW', cost: 'hyperscaler margin', color: 'var(--accent-amber)' },
+    { label: 'Token Revenue', value: fmtDollar(inputs.revenueGw / (1 - inputs.margin)) + '/yr', unit: 'lab rev per GW', cost: (inputs.margin * 100).toFixed(0) + '% lab margin', color: 'var(--accent-red)' },
+  ];
+
+  $('pipeline').innerHTML = stages.map(s => `
+    <div class="pipe-stage">
+      <div class="pipe-label">${s.label}</div>
+      <div class="pipe-value" style="color:${s.color}">${s.value}</div>
+      <span class="pipe-unit">${s.unit}</span>
+      <div class="pipe-cost">${s.cost}</div>
+    </div>
+  `).join('');
+}
+
+function renderMetrics(inputs) {
+  const paybackYears = inputs.capex / inputs.revenueGw;
+  const labRevPerGw = inputs.revenueGw / (1 - inputs.margin);
+  const labProfitPerGw = labRevPerGw - inputs.revenueGw;
+  const euvCostPerGw = inputs.euvPerGw * 0.375;
+  const leverage = inputs.capex / euvCostPerGw;
+
+  $('per-gw-metrics').innerHTML = `
+    <div class="metric-row"><span class="metric-label">CapEx (all-in)</span><span class="metric-value neutral">${fmtDollar(inputs.capex)}</span></div>
+    <div class="metric-row"><span class="metric-label">EUV tooling cost</span><span class="metric-value blue">${fmtDollar(euvCostPerGw)}</span></div>
+    <div class="metric-row"><span class="metric-label">Leverage ratio (CapEx / EUV)</span><span class="metric-value highlight">${leverage.toFixed(0)}×</span></div>
+    <div class="metric-row"><span class="metric-label">Cloud rental revenue / yr</span><span class="metric-value neutral">${fmtDollar(inputs.revenueGw)}/yr</span></div>
+    <div class="metric-row"><span class="metric-label">Lab token revenue / yr</span><span class="metric-value positive">${fmtDollar(labRevPerGw)}/yr</span></div>
+    <div class="metric-row"><span class="metric-label">Lab gross profit / yr</span><span class="metric-value positive">${fmtDollar(labProfitPerGw)}/yr</span></div>
+    <div class="metric-row"><span class="metric-label">Simple payback (cloud)</span><span class="metric-value ${paybackYears > 6 ? 'negative' : 'highlight'}">${paybackYears.toFixed(1)} years</span></div>
+    <div class="metric-row"><span class="metric-label">Profit years begin</span><span class="metric-value ${paybackYears > 6 ? 'negative' : 'positive'}">Year ${Math.ceil(paybackYears) + 1}+</span></div>
+  `;
+
+  // Ceiling
+  const gwPerYear = (inputs.asmlYear * inputs.aiPct) / inputs.euvPerGw;
+  const totalCapex = gwPerYear * inputs.capex;
+  const totalRevenue = gwPerYear * inputs.revenueGw;
+  const samWants = 52;
+  const totalGwFromAllTools = inputs.asmlYear / inputs.euvPerGw; // all chips, not just AI
+  const samShareThisYear = (samWants / totalGwFromAllTools) * 100;
+  // Dylan's 2030 math: ~100 tools/yr, ~700 cumulative, ~200 GW total fab capacity.
+  // Editorial estimate independent of slider values (which represent current-year production).
+  const samShare2030 = (samWants / 200) * 100; // ~26%
+
+  const samExceedsYear = samShareThisYear > 100;
+
+  $('ceiling-metrics').innerHTML = `
+    <div class="metric-row"><span class="metric-label">ASML tools produced / yr</span><span class="metric-value blue">${inputs.asmlYear}</span></div>
+    <div class="metric-row"><span class="metric-label">AI-allocated tools</span><span class="metric-value blue">${Math.round(inputs.asmlYear * inputs.aiPct)}</span></div>
+    <div class="metric-row"><span class="metric-label">Max new AI GW / yr</span><span class="metric-value highlight">${gwPerYear.toFixed(1)} GW</span></div>
+    <div class="metric-row"><span class="metric-label">Total new GW this year (all uses)</span><span class="metric-value neutral">${totalGwFromAllTools.toFixed(1)} GW</span></div>
+    <div class="metric-row"><span class="metric-label">Implied AI CapEx required</span><span class="metric-value neutral">${fmtDollar(totalCapex)}</span></div>
+    <div class="metric-row"><span class="metric-label">Implied AI rental revenue</span><span class="metric-value positive">${fmtDollar(totalRevenue)}/yr</span></div>
+    <div class="metric-row"><span class="metric-label">Sam wants 52 GW (this yr's tools)</span><span class="metric-value negative">${samShareThisYear.toFixed(0)}% — ${samExceedsYear ? 'impossible today' : 'tight'}</span></div>
+    <div class="metric-row"><span class="metric-label">Sam wants 52 GW (2030 · ~200 GW)</span><span class="metric-value highlight">${samShare2030.toFixed(0)}% — feasible per Dylan</span></div>
+  `;
+}
+
+function renderBottleneck() {
+  const segments = [
+    { cls: 'seg-euv', label: 'EUV TOOLS', pct: 30 },
+    { cls: 'seg-memory', label: 'MEMORY / HBM', pct: 28 },
+    { cls: 'seg-power', label: 'POWER', pct: 15 },
+    { cls: 'seg-labor', label: 'LABOR', pct: 15 },
+    { cls: 'seg-permitting', label: 'PERMITTING', pct: 12 },
+  ];
+
+  $('bottleneck-bar').innerHTML = segments.map(s =>
+    `<div class="bottleneck-segment ${s.cls}" style="flex:${s.pct}">${s.label} ${s.pct}%</div>`
+  ).join('');
+}
+
+function renderTimeline() {
+  const years = [
+    { year: '2024', gwNew: '~10', gwCum: '~30', detail: 'CoWoS & power', bn: 'Power + packaging', bnClass: 'bn-power', active: false },
+    { year: '2025', gwNew: '~20', gwCum: '~50', detail: 'Behind-the-meter boom', bn: 'Power + chips', bnClass: 'bn-power', active: false },
+    { year: '2026', gwNew: '~35', gwCum: '~85', detail: 'Memory crunch hits', bn: 'Chips + clean rooms', bnClass: 'bn-chips', active: true },
+    { year: '2027', gwNew: '~45', gwCum: '~130', detail: 'New fabs coming online', bn: 'Fab capacity', bnClass: 'bn-fabs', active: false },
+    { year: '2028', gwNew: '~55', gwCum: '~185', detail: 'ASML becomes ceiling', bn: 'EUV tools', bnClass: 'bn-euv', active: false },
+    { year: '2029', gwNew: '~65', gwCum: '~250', detail: 'Tool production ~90/yr', bn: 'EUV tools', bnClass: 'bn-euv', active: false },
+    { year: '2030', gwNew: '~75', gwCum: '~325', detail: '~700 total EUV tools', bn: 'EUV tools', bnClass: 'bn-euv', active: false },
+  ];
+
+  $('timeline').innerHTML = years.map(y => `
+    <div class="year-col ${y.active ? 'active' : ''}">
+      <div class="year-label">${y.year}</div>
+      <div class="year-gw">${y.gwNew}<span> GW/yr</span></div>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:0.7rem;color:var(--text-dim);margin-bottom:0.4rem">${y.gwCum} cum.</div>
+      <div class="year-detail">${y.detail}</div>
+      <div class="year-bottleneck ${y.bnClass}">${y.bn}</div>
+    </div>
+  `).join('');
+}
+
+function renderComparison() {
+  const maxGw = 8;
+
+  const data = {
+    anthropic: {
+      gwNow: 2, gwEoy: 5.5, arr: 19, raised: 30,
+      strategy: 'Conservative → scrambling. Paying spot premiums, revenue-sharing through Bedrock/Vertex. Best model but compute-constrained.',
+    },
+    openai: {
+      gwNow: 2.5, gwEoy: 6.5, arr: 25, raised: 110,
+      strategy: 'Aggressive from day one. Locked 5-year deals with CoreWeave, Oracle, SoftBank. Better margins on compute.',
+    }
+  };
+
+  const maxArr = 30;
+
+  $('comparison').innerHTML = `
+    <div class="company-card">
+      <div class="company-name"><span class="company-dot anthropic-dot"></span>Anthropic</div>
+      <div class="bar-chart">
+        <div class="bar-row">
+          <span class="bar-label">GW now</span>
+          <div class="bar-track"><div class="bar-fill bar-anthropic" style="width:${(data.anthropic.gwNow/maxGw)*100}%">${data.anthropic.gwNow} GW</div></div>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">GW EOY '26</span>
+          <div class="bar-track"><div class="bar-fill bar-anthropic" style="width:${(data.anthropic.gwEoy/maxGw)*100}%">${data.anthropic.gwEoy} GW</div></div>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">ARR (Mar '26)</span>
+          <div class="bar-track"><div class="bar-fill bar-anthropic" style="width:${(data.anthropic.arr/maxArr)*100}%">$${data.anthropic.arr}B ARR</div></div>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">Last raise</span>
+          <div class="bar-track"><div class="bar-fill bar-anthropic" style="width:${(data.anthropic.raised/120)*100}%">$${data.anthropic.raised}B</div></div>
+        </div>
+      </div>
+      <div style="margin-top:1rem;font-size:0.75rem;color:var(--text-dim);line-height:1.6">
+        <strong style="color:var(--accent-amber)">Strategy:</strong> ${data.anthropic.strategy}
+      </div>
+      <div style="margin-top:0.5rem;font-size:0.65rem;color:var(--text-muted);line-height:1.4">
+        ARR trajectory: $1B (Dec '24) → $9B (Dec '25) → $14B (Feb '26) → $19B (Mar '26). ~10x annual growth.
+      </div>
+    </div>
+    <div class="company-card">
+      <div class="company-name"><span class="company-dot openai-dot"></span>OpenAI</div>
+      <div class="bar-chart">
+        <div class="bar-row">
+          <span class="bar-label">GW now</span>
+          <div class="bar-track"><div class="bar-fill bar-openai" style="width:${(data.openai.gwNow/maxGw)*100}%">${data.openai.gwNow} GW</div></div>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">GW EOY '26</span>
+          <div class="bar-track"><div class="bar-fill bar-openai" style="width:${(data.openai.gwEoy/maxGw)*100}%">${data.openai.gwEoy} GW</div></div>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">ARR (Feb '26)</span>
+          <div class="bar-track"><div class="bar-fill bar-openai" style="width:${(data.openai.arr/maxArr)*100}%">$${data.openai.arr}B ARR</div></div>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">Last raise</span>
+          <div class="bar-track"><div class="bar-fill bar-openai" style="width:${(data.openai.raised/120)*100}%">$${data.openai.raised}B</div></div>
+        </div>
+      </div>
+      <div style="margin-top:1rem;font-size:0.75rem;color:var(--text-dim);line-height:1.6">
+        <strong style="color:var(--accent-green)">Strategy:</strong> ${data.openai.strategy}
+      </div>
+      <div style="margin-top:0.5rem;font-size:0.65rem;color:var(--text-muted);line-height:1.4">
+        ARR trajectory: $2B (end '23) → $6B ('24) → $20B+ (Dec '25) → $25B (Feb '26). ~3x annual growth.
+      </div>
+    </div>
+  `;
+}
+
+function update() {
+  const inputs = getInputs();
+
+  // Update displays
+  $('capex-display').textContent = '$' + inputs.capex + 'B';
+  $('revenue-gw-display').textContent = '$' + inputs.revenueGw + 'B';
+  $('margin-display').textContent = (inputs.margin * 100).toFixed(0) + '%';
+  $('euv-display').textContent = inputs.euvPerGw.toFixed(1);
+  $('asml-display').textContent = inputs.asmlYear;
+  $('aipct-display').textContent = (inputs.aiPct * 100).toFixed(0) + '%';
+
+  renderPipeline(inputs);
+  renderMetrics(inputs);
+  renderBottleneck();
+  renderTimeline();
+  renderComparison();
+}
+
+// Bind all sliders
+document.querySelectorAll('input[type="range"]').forEach(el => {
+  el.addEventListener('input', update);
+});
+
+// Initial render
+update();
+</script>
+</body>
+</html>
