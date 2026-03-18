@@ -900,7 +900,48 @@ const fmt = (n, d=1) => {
 
 const fmtDollar = (n, d=1) => '$' + fmt(n, d);
 
-function applyScenario(key) { update(); }
+var SCENARIOS = {
+  base: {
+    capex: 50, revenueGw: 10, margin: 45, euvPerGw: 3.5, asmlYear: 70, aiPct: 60,
+    hbmIndex: 1.0, powerGw: 15, demandGw: 20, priceDecay: 40, elasticity: 3.0,
+    targetPayback: 4, laborSeverity: 40, permitSeverity: 30,
+  },
+  bull: {
+    capex: 55, revenueGw: 14, margin: 55, euvPerGw: 3.0, asmlYear: 90, aiPct: 75,
+    hbmIndex: 1.5, powerGw: 14, demandGw: 40, priceDecay: 25, elasticity: 5.0,
+    targetPayback: 3, laborSeverity: 20, permitSeverity: 15,
+  },
+  bear: {
+    capex: 45, revenueGw: 7, margin: 30, euvPerGw: 3.5, asmlYear: 70, aiPct: 60,
+    hbmIndex: 1.2, powerGw: 25, demandGw: 10, priceDecay: 65, elasticity: 1.5,
+    targetPayback: 7, laborSeverity: 50, permitSeverity: 40,
+  },
+  shock: {
+    capex: 75, revenueGw: 18, margin: 35, euvPerGw: 5.0, asmlYear: 40, aiPct: 85,
+    hbmIndex: 0.7, powerGw: 10, demandGw: 30, priceDecay: 10, elasticity: 2.0,
+    targetPayback: 5, laborSeverity: 70, permitSeverity: 80,
+  },
+};
+
+function applyScenario(key) {
+  var s = SCENARIOS[key];
+  if (!s) return;
+  $('capex').value = s.capex;
+  $('revenueGw').value = s.revenueGw;
+  $('margin').value = s.margin;
+  $('euvPerGw').value = s.euvPerGw;
+  $('asmlYear').value = s.asmlYear;
+  $('aiPct').value = s.aiPct;
+  $('hbmIndex').value = s.hbmIndex;
+  $('powerGw').value = s.powerGw;
+  $('demandGw').value = s.demandGw;
+  $('priceDecay').value = s.priceDecay;
+  $('elasticity').value = s.elasticity;
+  $('targetPayback').value = s.targetPayback;
+  $('laborSeverity').value = s.laborSeverity;
+  $('permitSeverity').value = s.permitSeverity;
+  update();
+}
 
 const HBM_BASELINE_GW = 11;
 
