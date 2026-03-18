@@ -914,6 +914,55 @@ function computeSupply(inputs) {
   return { ceilings, supplyCeiling, binding, actualNewGw, tightnessRatio };
 }
 
+const HISTORICAL_BASE_GW = 50;
+const GROWTH = {
+  asmlTools: 8,
+  hbmImprovement: 0.15,
+  powerGrowth: 0.20,
+  demandGrowth: 0.25,
+};
+
+function computeTimeline(inputs) {
+  var years = [];
+  var cumulativeNewGw = 0;
+
+  years.push({ year: 2024, newGw: 10, cumulativeTotal: 30, cumulativeNew: 0, binding: 'power', tightness: 1.5, isHistorical: true });
+  years.push({ year: 2025, newGw: 20, cumulativeTotal: 50, cumulativeNew: 0, binding: 'power', tightness: 1.3, isHistorical: true });
+
+  for (var yr = 2026; yr <= 2030; yr++) {
+    var delta = yr - 2026;
+    var euvTools = inputs.asmlYear + delta * GROWTH.asmlTools;
+    var hbmIdx = inputs.hbmIndex * Math.pow(1 + GROWTH.hbmImprovement, delta);
+    var powerGw = inputs.powerGw * Math.pow(1 + GROWTH.powerGrowth, delta);
+
+    var gwEuv = (euvTools * inputs.aiPct) / inputs.euvPerGw;
+    var gwHbm = HBM_BASELINE_GW * hbmIdx;
+    var gwPower = powerGw;
+
+    var supplyCeiling = Math.min(gwEuv, gwHbm, gwPower);
+    var binding = 'euv';
+    if (gwHbm <= gwEuv && gwHbm <= gwPower) binding = 'hbm';
+    if (gwPower <= gwEuv && gwPower <= gwHbm) binding = 'power';
+
+    var demand = inputs.demandGw * Math.pow(1 + GROWTH.demandGrowth, delta);
+    var actualNew = Math.min(supplyCeiling, demand);
+    var tightness = demand / supplyCeiling;
+
+    cumulativeNewGw += actualNew;
+
+    years.push({
+      year: yr,
+      newGw: actualNew,
+      cumulativeTotal: HISTORICAL_BASE_GW + cumulativeNewGw,
+      cumulativeNew: cumulativeNewGw,
+      binding: tightness < 1.0 ? 'monetization' : binding,
+      tightness: tightness,
+      isHistorical: false,
+    });
+  }
+  return years;
+}
+
 function getInputs() {
   return {
     capex: +$('capex').value,
@@ -1018,26 +1067,26 @@ function renderBottleneck(inputs, supply) {
   }).join('');
 }
 
-function renderTimeline() {
-  const years = [
-    { year: '2024', gwNew: '~10', gwCum: '~30', detail: 'CoWoS & power', bn: 'Power + packaging', bnClass: 'bn-power', active: false },
-    { year: '2025', gwNew: '~20', gwCum: '~50', detail: 'Behind-the-meter boom', bn: 'Power + chips', bnClass: 'bn-power', active: false },
-    { year: '2026', gwNew: '~35', gwCum: '~85', detail: 'Memory crunch hits', bn: 'Chips + clean rooms', bnClass: 'bn-chips', active: true },
-    { year: '2027', gwNew: '~45', gwCum: '~130', detail: 'New fabs coming online', bn: 'Fab capacity', bnClass: 'bn-fabs', active: false },
-    { year: '2028', gwNew: '~55', gwCum: '~185', detail: 'ASML becomes ceiling', bn: 'EUV tools', bnClass: 'bn-euv', active: false },
-    { year: '2029', gwNew: '~65', gwCum: '~250', detail: 'Tool production ~90/yr', bn: 'EUV tools', bnClass: 'bn-euv', active: false },
-    { year: '2030', gwNew: '~75', gwCum: '~325', detail: '~700 total EUV tools', bn: 'EUV tools', bnClass: 'bn-euv', active: false },
-  ];
+function renderTimeline(timeline) {
+  var bnClassMap = { euv: 'bn-euv', hbm: 'bn-hbm', power: 'bn-power', monetization: 'bn-monetization' };
+  var bnLabelMap = { euv: 'EUV', hbm: 'HBM', power: 'Power', monetization: 'Demand' };
 
-  $('timeline').innerHTML = years.map(y => `
-    <div class="year-col ${y.active ? 'active' : ''}">
-      <div class="year-label">${y.year}</div>
-      <div class="year-gw">${y.gwNew}<span> GW/yr</span></div>
-      <div style="font-family:'JetBrains Mono',monospace;font-size:0.7rem;color:var(--text-dim);margin-bottom:0.4rem">${y.gwCum} cum.</div>
-      <div class="year-detail">${y.detail}</div>
-      <div class="year-bottleneck ${y.bnClass}">${y.bn}</div>
-    </div>
-  `).join('');
+  $('timeline').innerHTML = timeline.map(function(y) {
+    var active = y.year === 2026 ? 'active' : '';
+    var gwLabel = y.isHistorical ? '~' + y.newGw : y.newGw.toFixed(1);
+    var cumLabel = y.isHistorical ? '~' + y.cumulativeTotal : y.cumulativeTotal.toFixed(0);
+    var bnClass = bnClassMap[y.binding] || 'bn-chips';
+    var bnLabel = bnLabelMap[y.binding] || y.binding;
+    var trLabel = y.tightness < 0.8 ? 'loose' : y.tightness > 1.2 ? 'tight' : 'moderate';
+
+    return '<div class="year-col ' + active + '">'
+      + '<div class="year-label">' + y.year + '</div>'
+      + '<div class="year-gw">' + gwLabel + '<span> GW/yr</span></div>'
+      + '<div style="font-family:\'JetBrains Mono\',monospace;font-size:0.7rem;color:var(--text-dim);margin-bottom:0.4rem">' + cumLabel + ' cum.</div>'
+      + '<div class="year-bottleneck ' + bnClass + '">' + bnLabel + '</div>'
+      + '<div class="year-detail">' + trLabel + '</div>'
+      + '</div>';
+  }).join('');
 }
 
 function renderComparison() {
@@ -1138,7 +1187,8 @@ function update() {
   renderPipeline(inputs, supply);
   renderMetrics(inputs, supply);
   renderBottleneck(inputs, supply);
-  renderTimeline();
+  const timeline = computeTimeline(inputs);
+  renderTimeline(timeline);
   renderComparison();
 }
 
