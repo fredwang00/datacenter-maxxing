@@ -688,6 +688,29 @@
 <!-- Pipeline visualization -->
 <div class="pipeline" id="pipeline"></div>
 
+<!-- Scenario Presets -->
+<div class="controls-section">
+  <h2>Scenario Presets</h2>
+  <div class="preset-row">
+    <button class="preset-btn base" onclick="applyScenario('base')">
+      <div class="preset-title">Base Case</div>
+      <div class="preset-desc">Gradual scaling, 40% price decay, tight but functional supply.</div>
+    </button>
+    <button class="preset-btn bull" onclick="applyScenario('bull')">
+      <div class="preset-title">Agent Supercycle</div>
+      <div class="preset-desc">Elastic demand explodes, pricing stays firm, power is the bottleneck.</div>
+    </button>
+    <button class="preset-btn bear" onclick="applyScenario('bear')">
+      <div class="preset-title">Winter / Digestion</div>
+      <div class="preset-desc">Overbuilding meets weak demand. Race to the bottom.</div>
+    </button>
+    <button class="preset-btn shock" onclick="applyScenario('shock')">
+      <div class="preset-title">Geopolitical Shock</div>
+      <div class="preset-desc">Supply fractures. Extreme CapEx premiums and hoarded compute.</div>
+    </button>
+  </div>
+</div>
+
 <!-- Adjustable inputs -->
 <div class="controls-section">
   <h2>Adjust Assumptions</h2>
@@ -740,6 +763,84 @@
       <input type="range" id="aiPct" min="30" max="90" value="60" step="5">
       <div class="control-range-labels"><span>30%</span><span>90%</span></div>
     </div>
+    <div class="control-card">
+      <div class="control-label">
+        HBM supply index
+        <span class="control-value-display" id="hbm-display">1.0x</span>
+      </div>
+      <input type="range" id="hbmIndex" min="0.5" max="2" value="1" step="0.1">
+      <div class="control-range-labels"><span>0.5x</span><span>2.0x</span></div>
+    </div>
+    <div class="control-card">
+      <div class="control-label">
+        Power-deliverable GW / yr
+        <span class="control-value-display" id="power-display">15 GW</span>
+      </div>
+      <input type="range" id="powerGw" min="5" max="40" value="15" step="1">
+      <div class="control-range-labels"><span>5 GW</span><span>40 GW</span></div>
+    </div>
+    <div class="control-card">
+      <div class="control-label">
+        Demand for GW / yr
+        <span class="control-value-display" id="demand-display">20 GW</span>
+      </div>
+      <input type="range" id="demandGw" min="5" max="60" value="20" step="5">
+      <div class="control-range-labels"><span>5 GW</span><span>60 GW</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- Demand Elasticity -->
+<div class="controls-section">
+  <h2>Demand Elasticity</h2>
+  <div class="controls-grid">
+    <div class="control-card">
+      <div class="control-label">
+        Annual token price decay
+        <span class="control-value-display" id="price-decay-display">40%</span>
+      </div>
+      <input type="range" id="priceDecay" min="10" max="80" value="40" step="5">
+      <div class="control-range-labels"><span>10%</span><span>80%</span></div>
+    </div>
+    <div class="control-card">
+      <div class="control-label">
+        Demand elasticity (vol growth per 50% price cut)
+        <span class="control-value-display" id="elasticity-display">3.0x</span>
+      </div>
+      <input type="range" id="elasticity" min="1" max="10" value="3" step="0.5">
+      <div class="control-range-labels"><span>1.0x (Flat)</span><span>10.0x (Boom)</span></div>
+    </div>
+    <div class="control-card">
+      <div class="control-label">
+        Target industry payback period
+        <span class="control-value-display" id="target-payback-display">4 yrs</span>
+      </div>
+      <input type="range" id="targetPayback" min="2" max="10" value="4" step="1">
+      <div class="control-range-labels"><span>2 yrs</span><span>10 yrs</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- Qualitative Factors -->
+<div class="controls-section">
+  <h2>Qualitative Factors (Editorial)</h2>
+  <div class="controls-grid">
+    <div class="control-card">
+      <div class="control-label">
+        Labor constraint severity
+        <span class="control-value-display" id="labor-display">40</span>
+      </div>
+      <input type="range" id="laborSeverity" min="0" max="100" value="40" step="5">
+      <div class="control-range-labels"><span>0</span><span>100</span></div>
+    </div>
+    <div class="control-card">
+      <div class="control-label">
+        Permitting constraint severity
+        <span class="control-value-display" id="permit-display">30</span>
+      </div>
+      <input type="range" id="permitSeverity" min="0" max="100" value="30" step="5">
+      <div class="control-range-labels"><span>0</span><span>100</span></div>
+    </div>
   </div>
 </div>
 
@@ -791,6 +892,8 @@ const fmt = (n, d=1) => {
 
 const fmtDollar = (n, d=1) => '$' + fmt(n, d);
 
+function applyScenario(key) { update(); }
+
 function getInputs() {
   return {
     capex: +$('capex').value,
@@ -799,6 +902,14 @@ function getInputs() {
     euvPerGw: +$('euvPerGw').value,
     asmlYear: +$('asmlYear').value,
     aiPct: +$('aiPct').value / 100,
+    hbmIndex: +$('hbmIndex').value,
+    powerGw: +$('powerGw').value,
+    demandGw: +$('demandGw').value,
+    priceDecay: +$('priceDecay').value / 100,
+    elasticity: +$('elasticity').value,
+    targetPayback: +$('targetPayback').value,
+    laborSeverity: +$('laborSeverity').value,
+    permitSeverity: +$('permitSeverity').value,
   };
 }
 
@@ -986,6 +1097,14 @@ function update() {
   $('euv-display').textContent = inputs.euvPerGw.toFixed(1);
   $('asml-display').textContent = inputs.asmlYear;
   $('aipct-display').textContent = (inputs.aiPct * 100).toFixed(0) + '%';
+  $('hbm-display').textContent = inputs.hbmIndex.toFixed(1) + 'x';
+  $('power-display').textContent = inputs.powerGw + ' GW';
+  $('demand-display').textContent = inputs.demandGw + ' GW';
+  $('price-decay-display').textContent = (inputs.priceDecay * 100).toFixed(0) + '%';
+  $('elasticity-display').textContent = inputs.elasticity.toFixed(1) + 'x';
+  $('target-payback-display').textContent = inputs.targetPayback + ' yrs';
+  $('labor-display').textContent = inputs.laborSeverity;
+  $('permit-display').textContent = inputs.permitSeverity;
 
   renderPipeline(inputs);
   renderMetrics(inputs);
