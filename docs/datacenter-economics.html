@@ -509,12 +509,160 @@
 
   .footnote a { color: var(--accent-blue); text-decoration: none; }
 
+  /* Scenario Presets */
+  .preset-row {
+    display: flex;
+    gap: 0.75rem;
+    margin-bottom: 2rem;
+    flex-wrap: wrap;
+  }
+
+  .preset-btn {
+    flex: 1;
+    min-width: 140px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    text-align: left;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .preset-btn::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: transparent;
+    transition: background 0.3s ease;
+  }
+
+  .preset-btn:hover {
+    background: var(--surface2);
+    transform: translateY(-2px);
+  }
+
+  .preset-btn.base::before { background: var(--accent-blue); }
+  .preset-btn.bull::before { background: var(--accent-green); }
+  .preset-btn.bear::before { background: var(--accent-red); }
+  .preset-btn.shock::before { background: var(--accent-amber); }
+
+  .preset-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 0.25rem;
+  }
+
+  .preset-desc {
+    font-size: 0.65rem;
+    color: var(--text-dim);
+    line-height: 1.3;
+  }
+
+  /* Stock Sensitivity Matrix */
+  .matrix-tabs {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .matrix-tab {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .matrix-tab:hover {
+    border-color: var(--accent-blue);
+    color: var(--text);
+  }
+
+  .matrix-tab.active {
+    background: var(--glow-blue);
+    border-color: var(--accent-blue);
+    color: var(--accent-blue);
+    font-weight: 600;
+  }
+
+  .matrix-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 1rem;
+  }
+
+  .matrix-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.25rem;
+  }
+
+  .matrix-card h4 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 0.75rem;
+  }
+
+  .matrix-card.winners h4 { color: var(--accent-green); }
+  .matrix-card.losers h4 { color: var(--accent-red); }
+  .matrix-card.symptoms h4 { color: var(--accent-amber); }
+
+  .matrix-list {
+    list-style: none;
+    font-size: 0.85rem;
+    color: var(--text);
+  }
+
+  .matrix-list li {
+    margin-bottom: 0.4rem;
+    padding-left: 1rem;
+    position: relative;
+  }
+
+  .matrix-list li::before {
+    content: '\2192';
+    position: absolute;
+    left: 0;
+    color: var(--text-dim);
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* Pipeline binding highlight */
+  .pipe-stage.binding {
+    border-color: var(--accent-amber);
+    box-shadow: 0 0 15px rgba(245, 158, 11, 0.2);
+  }
+
+  /* Bottleneck dimming for loose constraints */
+  .bottleneck-segment.loose {
+    opacity: 0.4;
+  }
+
+  /* Tightness indicator badges */
+  .bn-hbm { background: rgba(74, 158, 255, 0.15); color: var(--accent-blue); }
+  .bn-monetization { background: rgba(239, 68, 68, 0.15); color: var(--accent-red); }
+
   /* Responsive */
   @media (max-width: 900px) {
     .pipeline { grid-template-columns: repeat(3, 1fr); }
     .outputs, .comparison { grid-template-columns: 1fr; }
     .timeline { flex-wrap: wrap; }
     .year-col { min-width: 120px; }
+    .matrix-grid { grid-template-columns: 1fr; }
   }
 
   @media (max-width: 600px) {
@@ -539,6 +687,29 @@
 
 <!-- Pipeline visualization -->
 <div class="pipeline" id="pipeline"></div>
+
+<!-- Scenario Presets -->
+<div class="controls-section">
+  <h2>Scenario Presets</h2>
+  <div class="preset-row">
+    <button class="preset-btn base" onclick="applyScenario('base')">
+      <div class="preset-title">Base Case</div>
+      <div class="preset-desc">Gradual scaling, 40% price decay, tight but functional supply.</div>
+    </button>
+    <button class="preset-btn bull" onclick="applyScenario('bull')">
+      <div class="preset-title">Agent Supercycle</div>
+      <div class="preset-desc">Elastic demand explodes, pricing stays firm, power is the bottleneck.</div>
+    </button>
+    <button class="preset-btn bear" onclick="applyScenario('bear')">
+      <div class="preset-title">Winter / Digestion</div>
+      <div class="preset-desc">Overbuilding meets weak demand. Race to the bottom.</div>
+    </button>
+    <button class="preset-btn shock" onclick="applyScenario('shock')">
+      <div class="preset-title">Geopolitical Shock</div>
+      <div class="preset-desc">Supply fractures. Extreme CapEx premiums and hoarded compute.</div>
+    </button>
+  </div>
+</div>
 
 <!-- Adjustable inputs -->
 <div class="controls-section">
@@ -592,6 +763,84 @@
       <input type="range" id="aiPct" min="30" max="90" value="60" step="5">
       <div class="control-range-labels"><span>30%</span><span>90%</span></div>
     </div>
+    <div class="control-card">
+      <div class="control-label">
+        HBM supply index
+        <span class="control-value-display" id="hbm-display">1.0x</span>
+      </div>
+      <input type="range" id="hbmIndex" min="0.5" max="2" value="1" step="0.1">
+      <div class="control-range-labels"><span>0.5x</span><span>2.0x</span></div>
+    </div>
+    <div class="control-card">
+      <div class="control-label">
+        Power-deliverable GW / yr
+        <span class="control-value-display" id="power-display">15 GW</span>
+      </div>
+      <input type="range" id="powerGw" min="5" max="40" value="15" step="1">
+      <div class="control-range-labels"><span>5 GW</span><span>40 GW</span></div>
+    </div>
+    <div class="control-card">
+      <div class="control-label">
+        Demand for GW / yr
+        <span class="control-value-display" id="demand-display">20 GW</span>
+      </div>
+      <input type="range" id="demandGw" min="5" max="60" value="20" step="5">
+      <div class="control-range-labels"><span>5 GW</span><span>60 GW</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- Demand Elasticity -->
+<div class="controls-section">
+  <h2>Demand Elasticity</h2>
+  <div class="controls-grid">
+    <div class="control-card">
+      <div class="control-label">
+        Annual token price decay
+        <span class="control-value-display" id="price-decay-display">40%</span>
+      </div>
+      <input type="range" id="priceDecay" min="10" max="80" value="40" step="5">
+      <div class="control-range-labels"><span>10%</span><span>80%</span></div>
+    </div>
+    <div class="control-card">
+      <div class="control-label">
+        Demand elasticity (vol growth per 50% price cut)
+        <span class="control-value-display" id="elasticity-display">3.0x</span>
+      </div>
+      <input type="range" id="elasticity" min="1" max="10" value="3" step="0.5">
+      <div class="control-range-labels"><span>1.0x (Flat)</span><span>10.0x (Boom)</span></div>
+    </div>
+    <div class="control-card">
+      <div class="control-label">
+        Target industry payback period
+        <span class="control-value-display" id="target-payback-display">4 yrs</span>
+      </div>
+      <input type="range" id="targetPayback" min="2" max="10" value="4" step="1">
+      <div class="control-range-labels"><span>2 yrs</span><span>10 yrs</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- Qualitative Factors -->
+<div class="controls-section">
+  <h2>Qualitative Factors (Editorial)</h2>
+  <div class="controls-grid">
+    <div class="control-card">
+      <div class="control-label">
+        Labor constraint severity
+        <span class="control-value-display" id="labor-display">40</span>
+      </div>
+      <input type="range" id="laborSeverity" min="0" max="100" value="40" step="5">
+      <div class="control-range-labels"><span>0</span><span>100</span></div>
+    </div>
+    <div class="control-card">
+      <div class="control-label">
+        Permitting constraint severity
+        <span class="control-value-display" id="permit-display">30</span>
+      </div>
+      <input type="range" id="permitSeverity" min="0" max="100" value="30" step="5">
+      <div class="control-range-labels"><span>0</span><span>100</span></div>
+    </div>
   </div>
 </div>
 
@@ -609,7 +858,7 @@
 
 <!-- Bottleneck visualization -->
 <div class="bottleneck-section controls-section">
-  <h2>Bottleneck Severity (2026 · editorial estimate)</h2>
+  <h2>Bottleneck Severity (2026)</h2>
   <div class="bottleneck-bar" id="bottleneck-bar"></div>
 </div>
 
@@ -617,6 +866,21 @@
 <div class="timeline-section controls-section">
   <h2>Roadmap: Bottleneck Migration</h2>
   <div class="timeline" id="timeline"></div>
+</div>
+
+<!-- Jevons Reality Check -->
+<div class="outputs" style="margin-top:2.5rem">
+  <div class="output-panel" style="grid-column: 1 / -1">
+    <h3>2030 Reality Check (Jevons Paradox)</h3>
+    <div id="jevons-metrics" style="display:grid;grid-template-columns:1fr 1fr;gap:0 2rem"></div>
+  </div>
+</div>
+
+<!-- Stock Sensitivity Matrix -->
+<div class="controls-section">
+  <h2>Public Markets: Stock Sensitivity Matrix</h2>
+  <div class="matrix-tabs" id="matrix-tabs"></div>
+  <div class="matrix-grid" id="matrix-content"></div>
 </div>
 
 <!-- Anthropic vs OpenAI comparison -->
@@ -643,6 +907,118 @@ const fmt = (n, d=1) => {
 
 const fmtDollar = (n, d=1) => '$' + fmt(n, d);
 
+var SCENARIOS = {
+  base: {
+    capex: 50, revenueGw: 10, margin: 45, euvPerGw: 3.5, asmlYear: 70, aiPct: 60,
+    hbmIndex: 1.0, powerGw: 15, demandGw: 20, priceDecay: 40, elasticity: 3.0,
+    targetPayback: 4, laborSeverity: 40, permitSeverity: 30,
+  },
+  bull: {
+    capex: 55, revenueGw: 14, margin: 55, euvPerGw: 3.0, asmlYear: 90, aiPct: 75,
+    hbmIndex: 1.5, powerGw: 14, demandGw: 40, priceDecay: 25, elasticity: 5.0,
+    targetPayback: 3, laborSeverity: 20, permitSeverity: 15,
+  },
+  bear: {
+    capex: 45, revenueGw: 7, margin: 30, euvPerGw: 3.5, asmlYear: 70, aiPct: 60,
+    hbmIndex: 1.2, powerGw: 25, demandGw: 10, priceDecay: 65, elasticity: 1.5,
+    targetPayback: 7, laborSeverity: 50, permitSeverity: 40,
+  },
+  shock: {
+    capex: 75, revenueGw: 18, margin: 35, euvPerGw: 5.0, asmlYear: 40, aiPct: 85,
+    hbmIndex: 0.7, powerGw: 10, demandGw: 30, priceDecay: 10, elasticity: 2.0,
+    targetPayback: 5, laborSeverity: 70, permitSeverity: 80,
+  },
+};
+
+function applyScenario(key) {
+  var s = SCENARIOS[key];
+  if (!s) return;
+  $('capex').value = s.capex;
+  $('revenueGw').value = s.revenueGw;
+  $('margin').value = s.margin;
+  $('euvPerGw').value = s.euvPerGw;
+  $('asmlYear').value = s.asmlYear;
+  $('aiPct').value = s.aiPct;
+  $('hbmIndex').value = s.hbmIndex;
+  $('powerGw').value = s.powerGw;
+  $('demandGw').value = s.demandGw;
+  $('priceDecay').value = s.priceDecay;
+  $('elasticity').value = s.elasticity;
+  $('targetPayback').value = s.targetPayback;
+  $('laborSeverity').value = s.laborSeverity;
+  $('permitSeverity').value = s.permitSeverity;
+  update();
+}
+
+const HBM_BASELINE_GW = 11;
+
+function computeSupply(inputs) {
+  const gwFromEuv = (inputs.asmlYear * inputs.aiPct) / inputs.euvPerGw;
+  const gwFromHbm = HBM_BASELINE_GW * inputs.hbmIndex;
+  const gwFromPower = inputs.powerGw;
+
+  const ceilings = { euv: gwFromEuv, hbm: gwFromHbm, power: gwFromPower };
+  const supplyCeiling = Math.min(gwFromEuv, gwFromHbm, gwFromPower);
+
+  let binding = 'euv';
+  if (gwFromHbm <= gwFromEuv && gwFromHbm <= gwFromPower) binding = 'hbm';
+  if (gwFromPower <= gwFromEuv && gwFromPower <= gwFromHbm) binding = 'power';
+
+  const actualNewGw = Math.min(supplyCeiling, inputs.demandGw);
+  const tightnessRatio = inputs.demandGw / supplyCeiling;
+
+  return { ceilings, supplyCeiling, binding, actualNewGw, tightnessRatio };
+}
+
+const HISTORICAL_BASE_GW = 50;
+const GROWTH = {
+  asmlTools: 8,
+  hbmImprovement: 0.15,
+  powerGrowth: 0.20,
+  demandGrowth: 0.25,
+};
+
+function computeTimeline(inputs) {
+  var years = [];
+  var cumulativeNewGw = 0;
+
+  years.push({ year: 2024, newGw: 10, cumulativeTotal: 30, cumulativeNew: 0, binding: 'power', tightness: 1.5, isHistorical: true });
+  years.push({ year: 2025, newGw: 20, cumulativeTotal: 50, cumulativeNew: 0, binding: 'power', tightness: 1.3, isHistorical: true });
+
+  for (var yr = 2026; yr <= 2030; yr++) {
+    var delta = yr - 2026;
+    var euvTools = inputs.asmlYear + delta * GROWTH.asmlTools;
+    var hbmIdx = inputs.hbmIndex * Math.pow(1 + GROWTH.hbmImprovement, delta);
+    var powerGw = inputs.powerGw * Math.pow(1 + GROWTH.powerGrowth, delta);
+
+    var gwEuv = (euvTools * inputs.aiPct) / inputs.euvPerGw;
+    var gwHbm = HBM_BASELINE_GW * hbmIdx;
+    var gwPower = powerGw;
+
+    var supplyCeiling = Math.min(gwEuv, gwHbm, gwPower);
+    var binding = 'euv';
+    if (gwHbm <= gwEuv && gwHbm <= gwPower) binding = 'hbm';
+    if (gwPower <= gwEuv && gwPower <= gwHbm) binding = 'power';
+
+    var demand = inputs.demandGw * Math.pow(1 + GROWTH.demandGrowth, delta);
+    var actualNew = Math.min(supplyCeiling, demand);
+    var tightness = demand / supplyCeiling;
+
+    cumulativeNewGw += actualNew;
+
+    years.push({
+      year: yr,
+      newGw: actualNew,
+      cumulativeTotal: HISTORICAL_BASE_GW + cumulativeNewGw,
+      cumulativeNew: cumulativeNewGw,
+      binding: tightness < 1.0 ? 'monetization' : binding,
+      tightness: tightness,
+      isHistorical: false,
+    });
+  }
+  return years;
+}
+
 function getInputs() {
   return {
     capex: +$('capex').value,
@@ -651,124 +1027,268 @@ function getInputs() {
     euvPerGw: +$('euvPerGw').value,
     asmlYear: +$('asmlYear').value,
     aiPct: +$('aiPct').value / 100,
+    hbmIndex: +$('hbmIndex').value,
+    powerGw: +$('powerGw').value,
+    demandGw: +$('demandGw').value,
+    priceDecay: +$('priceDecay').value / 100,
+    elasticity: +$('elasticity').value,
+    targetPayback: +$('targetPayback').value,
+    laborSeverity: +$('laborSeverity').value,
+    permitSeverity: +$('permitSeverity').value,
   };
 }
 
-function renderPipeline(inputs) {
-  const euvCost = inputs.euvPerGw * 0.375; // ~$375M per tool
+// All innerHTML usage in this file is safe: content is derived from numeric slider
+// values, hardcoded constants, and static strings. No user-provided text input.
+function renderPipeline(inputs, supply) {
+  const euvCost = inputs.euvPerGw * 0.375;
+
+  let bindingIndex = 0; // EUV
+  if (supply.binding === 'hbm') bindingIndex = 2;
+  else if (supply.binding === 'power') bindingIndex = 3;
+  if (supply.tightnessRatio < 1.0) bindingIndex = 5; // overcapacity
+
   const stages = [
     { label: 'EUV Tools', value: inputs.euvPerGw.toFixed(1), unit: 'tool-years of capacity', cost: fmtDollar(euvCost) + ' per GW', color: 'var(--accent-purple)' },
-    { label: 'Logic Wafers', value: '55K', unit: '3nm wafers per GW', cost: 'TSMC → NVIDIA/Google', color: 'var(--accent-blue)' },
+    { label: 'Logic Wafers', value: '55K', unit: '3nm wafers per GW', cost: 'TSMC \u2192 NVIDIA/Google', color: 'var(--accent-blue)' },
     { label: 'Memory (HBM)', value: '170K', unit: 'DRAM wafers per GW', cost: '~30% of DC CapEx', color: 'var(--accent-cyan)' },
     { label: 'Data Center', value: fmtDollar(inputs.capex), unit: 'all-in CapEx per GW', cost: 'GPUs+HBM+net+power', color: 'var(--accent-green)' },
     { label: 'Compute Rental', value: fmtDollar(inputs.revenueGw) + '/yr', unit: 'cloud rev per GW', cost: 'hyperscaler margin', color: 'var(--accent-amber)' },
     { label: 'Token Revenue', value: fmtDollar(inputs.revenueGw / (1 - inputs.margin)) + '/yr', unit: 'lab rev per GW', cost: (inputs.margin * 100).toFixed(0) + '% lab margin', color: 'var(--accent-red)' },
   ];
 
-  $('pipeline').innerHTML = stages.map(s => `
-    <div class="pipe-stage">
-      <div class="pipe-label">${s.label}</div>
-      <div class="pipe-value" style="color:${s.color}">${s.value}</div>
-      <span class="pipe-unit">${s.unit}</span>
-      <div class="pipe-cost">${s.cost}</div>
-    </div>
-  `).join('');
+  $('pipeline').innerHTML = stages.map((s, i) => '<div class="pipe-stage ' + (i === bindingIndex ? 'binding' : '') + '">'
+    + '<div class="pipe-label">' + s.label + '</div>'
+    + '<div class="pipe-value" style="color:' + s.color + '">' + s.value + '</div>'
+    + '<span class="pipe-unit">' + s.unit + '</span>'
+    + '<div class="pipe-cost">' + s.cost + '</div>'
+    + '</div>').join('');
 }
 
-function renderMetrics(inputs) {
+function renderMetrics(inputs, supply) {
   const paybackYears = inputs.capex / inputs.revenueGw;
   const labRevPerGw = inputs.revenueGw / (1 - inputs.margin);
   const labProfitPerGw = labRevPerGw - inputs.revenueGw;
   const euvCostPerGw = inputs.euvPerGw * 0.375;
   const leverage = inputs.capex / euvCostPerGw;
 
-  $('per-gw-metrics').innerHTML = `
-    <div class="metric-row"><span class="metric-label">CapEx (all-in)</span><span class="metric-value neutral">${fmtDollar(inputs.capex)}</span></div>
-    <div class="metric-row"><span class="metric-label">EUV tooling cost</span><span class="metric-value blue">${fmtDollar(euvCostPerGw)}</span></div>
-    <div class="metric-row"><span class="metric-label">Leverage ratio (CapEx / EUV)</span><span class="metric-value highlight">${leverage.toFixed(0)}×</span></div>
-    <div class="metric-row"><span class="metric-label">Cloud rental revenue / yr</span><span class="metric-value neutral">${fmtDollar(inputs.revenueGw)}/yr</span></div>
-    <div class="metric-row"><span class="metric-label">Lab token revenue / yr</span><span class="metric-value positive">${fmtDollar(labRevPerGw)}/yr</span></div>
-    <div class="metric-row"><span class="metric-label">Lab gross profit / yr</span><span class="metric-value positive">${fmtDollar(labProfitPerGw)}/yr</span></div>
-    <div class="metric-row"><span class="metric-label">Simple payback (cloud)</span><span class="metric-value ${paybackYears > 6 ? 'negative' : 'highlight'}">${paybackYears.toFixed(1)} years</span></div>
-    <div class="metric-row"><span class="metric-label">Profit years begin</span><span class="metric-value ${paybackYears > 6 ? 'negative' : 'positive'}">Year ${Math.ceil(paybackYears) + 1}+</span></div>
-  `;
+  const mr = (label, val, cls) => '<div class="metric-row"><span class="metric-label">' + label + '</span><span class="metric-value ' + cls + '">' + val + '</span></div>';
 
-  // Ceiling
-  const gwPerYear = (inputs.asmlYear * inputs.aiPct) / inputs.euvPerGw;
-  const totalCapex = gwPerYear * inputs.capex;
-  const totalRevenue = gwPerYear * inputs.revenueGw;
-  const samWants = 52;
-  const totalGwFromAllTools = inputs.asmlYear / inputs.euvPerGw; // all chips, not just AI
-  const samShareThisYear = (samWants / totalGwFromAllTools) * 100;
-  // Dylan's 2030 math: ~100 tools/yr, ~700 cumulative, ~200 GW total fab capacity.
-  // Editorial estimate independent of slider values (which represent current-year production).
-  const samShare2030 = (samWants / 200) * 100; // ~26%
+  $('per-gw-metrics').innerHTML =
+    mr('CapEx (all-in)', fmtDollar(inputs.capex), 'neutral')
+    + mr('EUV tooling cost', fmtDollar(euvCostPerGw), 'blue')
+    + mr('Leverage ratio (CapEx / EUV)', leverage.toFixed(0) + '\u00d7', 'highlight')
+    + mr('Cloud rental revenue / yr', fmtDollar(inputs.revenueGw) + '/yr', 'neutral')
+    + mr('Lab token revenue / yr', fmtDollar(labRevPerGw) + '/yr', 'positive')
+    + mr('Lab gross profit / yr', fmtDollar(labProfitPerGw) + '/yr', 'positive')
+    + mr('Simple payback (cloud)', paybackYears.toFixed(1) + ' years', paybackYears > 6 ? 'negative' : 'highlight')
+    + mr('Profit years begin', 'Year ' + (Math.ceil(paybackYears) + 1) + '+', paybackYears > 6 ? 'negative' : 'positive');
 
-  const samExceedsYear = samShareThisYear > 100;
+  // Multi-constraint ceiling
+  const c = supply.ceilings;
+  const bc = (key) => key === supply.binding ? 'highlight' : 'neutral';
+  const totalCapex = supply.actualNewGw * inputs.capex;
+  const totalRevenue = supply.actualNewGw * inputs.revenueGw;
+  const tr = supply.tightnessRatio;
+  const trClass = tr < 0.8 ? 'positive' : tr > 1.2 ? 'negative' : 'highlight';
+  const trLabel = tr < 0.8 ? 'loose' : tr > 1.2 ? 'severe' : 'moderate';
 
-  $('ceiling-metrics').innerHTML = `
-    <div class="metric-row"><span class="metric-label">ASML tools produced / yr</span><span class="metric-value blue">${inputs.asmlYear}</span></div>
-    <div class="metric-row"><span class="metric-label">AI-allocated tools</span><span class="metric-value blue">${Math.round(inputs.asmlYear * inputs.aiPct)}</span></div>
-    <div class="metric-row"><span class="metric-label">Max new AI GW / yr</span><span class="metric-value highlight">${gwPerYear.toFixed(1)} GW</span></div>
-    <div class="metric-row"><span class="metric-label">Total new GW this year (all uses)</span><span class="metric-value neutral">${totalGwFromAllTools.toFixed(1)} GW</span></div>
-    <div class="metric-row"><span class="metric-label">Implied AI CapEx required</span><span class="metric-value neutral">${fmtDollar(totalCapex)}</span></div>
-    <div class="metric-row"><span class="metric-label">Implied AI rental revenue</span><span class="metric-value positive">${fmtDollar(totalRevenue)}/yr</span></div>
-    <div class="metric-row"><span class="metric-label">Sam wants 52 GW (this yr's tools)</span><span class="metric-value negative">${samShareThisYear.toFixed(0)}% — ${samExceedsYear ? 'impossible today' : 'tight'}</span></div>
-    <div class="metric-row"><span class="metric-label">Sam wants 52 GW (2030 · ~200 GW)</span><span class="metric-value highlight">${samShare2030.toFixed(0)}% — feasible per Dylan</span></div>
-  `;
+  $('ceiling-metrics').innerHTML =
+    mr('GW ceiling \u2014 EUV', c.euv.toFixed(1) + ' GW', bc('euv'))
+    + mr('GW ceiling \u2014 HBM', c.hbm.toFixed(1) + ' GW', bc('hbm'))
+    + mr('GW ceiling \u2014 Power', c.power.toFixed(1) + ' GW', bc('power'))
+    + mr('Supply ceiling (binding)', supply.supplyCeiling.toFixed(1) + ' GW', 'highlight')
+    + mr('Demand', inputs.demandGw + ' GW', 'blue')
+    + mr('Tightness ratio', tr.toFixed(2) + '\u00d7 \u2014 ' + trLabel, trClass)
+    + mr('Actual new GW / yr', supply.actualNewGw.toFixed(1) + ' GW', 'highlight')
+    + mr('Implied AI CapEx', fmtDollar(totalCapex), 'neutral')
+    + mr('Implied AI rental revenue', fmtDollar(totalRevenue) + '/yr', 'positive');
 }
 
-function renderBottleneck() {
+function computeJevons(inputs, timeline) {
+  var entry2030 = timeline.find(function(y) { return y.year === 2030; });
+  var cumulativeNewGw = entry2030 ? entry2030.cumulativeNew : 0;
+  var years = 4; // compounding intervals 2026->2030
+
+  var totalCapex = cumulativeNewGw * inputs.capex;
+  var requiredAnnualRev = totalCapex / inputs.targetPayback;
+
+  var priceMultiplier = Math.pow(1 - inputs.priceDecay, years);
+  var halfLives = years * Math.log(1 - inputs.priceDecay) / Math.log(0.5);
+  var volumeMultiplier = Math.pow(inputs.elasticity, halfLives);
+
+  var effectiveRevMultiplier = priceMultiplier * volumeMultiplier;
+  var projectedRevPerGw = inputs.revenueGw * effectiveRevMultiplier;
+  var projectedAnnualRev = cumulativeNewGw * projectedRevPerGw;
+
+  var revenueGap = projectedAnnualRev - requiredAnnualRev;
+  var isSustainable = revenueGap >= 0;
+  var pctGlobalGdp = (requiredAnnualRev / 120000) * 100;
+
+  return {
+    cumulativeNewGw: cumulativeNewGw,
+    totalCapex: totalCapex,
+    requiredAnnualRev: requiredAnnualRev,
+    priceMultiplier: priceMultiplier,
+    volumeMultiplier: volumeMultiplier,
+    projectedAnnualRev: projectedAnnualRev,
+    isSustainable: isSustainable,
+    pctGlobalGdp: pctGlobalGdp,
+  };
+}
+
+function renderJevons(jevons) {
+  var j = jevons;
+  var gdpClass = j.pctGlobalGdp > 3 ? 'negative' : 'neutral';
+  var statusClass = j.isSustainable ? 'positive' : 'negative';
+  var statusLabel = j.isSustainable ? 'Escape Velocity' : 'CapEx Death Spiral';
+  var volLabel = j.volumeMultiplier >= 1000 ? fmt(j.volumeMultiplier) + 'x' : j.volumeMultiplier.toFixed(1) + 'x';
+
+  var mr = function(label, val, cls) {
+    return '<div class="metric-row"><span class="metric-label">' + label + '</span><span class="metric-value ' + cls + '">' + val + '</span></div>';
+  };
+
+  $('jevons-metrics').innerHTML =
+    '<div>'
+    + mr('Cumulative CapEx (2026-2030)', fmtDollar(j.totalCapex), 'neutral')
+    + mr('Required annual revenue', fmtDollar(j.requiredAnnualRev) + '/yr', 'highlight')
+    + mr('Required GDP capture', j.pctGlobalGdp.toFixed(2) + '%', gdpClass)
+    + '</div><div>'
+    + mr('2030 cost of intelligence', (j.priceMultiplier * 100).toFixed(1) + '% of today', 'blue')
+    + mr('2030 token volume demand', volLabel + ' today', 'blue')
+    + mr('Projected 2030 annual revenue', fmtDollar(j.projectedAnnualRev) + '/yr', statusClass)
+    + mr('Market status', statusLabel, statusClass)
+    + '</div>';
+}
+
+var MARKET_SCENARIOS = {
+  euv: {
+    label: 'EUV & Fab Tight',
+    winners: ['TSMC (Pricing power, margin expansion)', 'ASML (Backlog locked, cash flow)', 'NVIDIA (Allocation king)'],
+    losers: ['Lower-tier ASIC projects', 'Consumer electronics (Apple/Qualcomm margin hit)', 'AMD (If unable to secure N3/N2)'],
+    symptoms: ['Foundry price hikes leaked to press', 'Smartphone chip delays', 'Extended lead times on semi-cap equipment'],
+  },
+  hbm: {
+    label: 'HBM / Memory Tight',
+    winners: ['SK Hynix (First-mover advantage)', 'Micron (Margin catch-up)', 'Amkor (Advanced packaging)'],
+    losers: ['Commodity DDR buyers (Price spikes)', 'Accelerators waiting on HBM pins', 'Datacenter CapEx budgets'],
+    symptoms: ['Massive DDR pricing spikes', 'GPU shipments stall despite logic availability', 'Wafer reallocations from consumer to server'],
+  },
+  power: {
+    label: 'Power & DC Tight',
+    winners: ['Electrical equipment (VRT, ETN, PWR)', 'Independent Power Producers (CEG, VST)', 'Asset-rich neoclouds (CoreWeave)'],
+    losers: ['Hyperscalers without secured sites', 'Model labs stuck waiting for compute', 'Legacy enterprise cloud migrations'],
+    symptoms: ['Transformers take 3+ years to deliver', 'Nuclear/gas plant direct-connect deals', 'Stranded GPUs sitting in warehouses'],
+  },
+  demand: {
+    label: 'Monetization Tight (Jevons Failure)',
+    winners: ['Enterprise software incumbents (MSFT)', 'Value-add consulting/SI', 'Cheapest inference provider (META)'],
+    losers: ['GPU neoclouds (Spot pricing collapse)', 'NVIDIA (CapEx orders slashed)', 'Pure-play foundation model labs'],
+    symptoms: ['GPU hourly rental rates plummet', 'Payback periods stretch to 7+ years', 'Hyperscalers push out rack deliveries'],
+  },
+};
+
+var activeMatrixTab = 'hbm';
+
+function renderMatrixContent(key) {
+  var data = MARKET_SCENARIOS[key];
+  $('matrix-content').innerHTML =
+    '<div class="matrix-card winners"><h4>Long / Winners</h4><ul class="matrix-list">'
+    + data.winners.map(function(w) { return '<li>' + w + '</li>'; }).join('')
+    + '</ul></div>'
+    + '<div class="matrix-card losers"><h4>Short / Losers</h4><ul class="matrix-list">'
+    + data.losers.map(function(l) { return '<li>' + l + '</li>'; }).join('')
+    + '</ul></div>'
+    + '<div class="matrix-card symptoms"><h4>Early Warning Symptoms</h4><ul class="matrix-list" style="color:var(--text-dim)">'
+    + data.symptoms.map(function(s) { return '<li>' + s + '</li>'; }).join('')
+    + '</ul></div>';
+}
+
+function renderMatrix(supply) {
+  if (supply.tightnessRatio < 1.0) {
+    activeMatrixTab = 'demand';
+  } else {
+    activeMatrixTab = supply.binding;
+  }
+
+  $('matrix-tabs').innerHTML = Object.keys(MARKET_SCENARIOS).map(function(key) {
+    var s = MARKET_SCENARIOS[key];
+    return '<button class="matrix-tab ' + (key === activeMatrixTab ? 'active' : '') + '" onclick="setMatrixTab(\'' + key + '\')">' + s.label + '</button>';
+  }).join('');
+
+  renderMatrixContent(activeMatrixTab);
+}
+
+function setMatrixTab(key) {
+  activeMatrixTab = key;
+  document.querySelectorAll('.matrix-tab').forEach(function(el) { el.classList.remove('active'); });
+  var tabs = document.querySelectorAll('.matrix-tab');
+  var keys = Object.keys(MARKET_SCENARIOS);
+  for (var i = 0; i < keys.length; i++) {
+    if (keys[i] === key) tabs[i].classList.add('active');
+  }
+  renderMatrixContent(key);
+}
+
+function renderBottleneck(inputs, supply) {
   const segments = [
-    { cls: 'seg-euv', label: 'EUV TOOLS', pct: 30 },
-    { cls: 'seg-memory', label: 'MEMORY / HBM', pct: 28 },
-    { cls: 'seg-power', label: 'POWER', pct: 15 },
-    { cls: 'seg-labor', label: 'LABOR', pct: 15 },
-    { cls: 'seg-permitting', label: 'PERMITTING', pct: 12 },
+    { cls: 'seg-euv', label: 'EUV', tightness: inputs.demandGw / supply.ceilings.euv },
+    { cls: 'seg-memory', label: 'HBM', tightness: inputs.demandGw / supply.ceilings.hbm },
+    { cls: 'seg-power', label: 'POWER', tightness: inputs.demandGw / supply.ceilings.power },
+    { cls: 'seg-labor', label: 'LABOR', tightness: inputs.laborSeverity / 100 },
+    { cls: 'seg-permitting', label: 'PERMITTING', tightness: inputs.permitSeverity / 100 },
   ];
 
-  $('bottleneck-bar').innerHTML = segments.map(s =>
-    `<div class="bottleneck-segment ${s.cls}" style="flex:${s.pct}">${s.label} ${s.pct}%</div>`
-  ).join('');
+  const total = segments.reduce(function(sum, s) { return sum + s.tightness; }, 0);
+
+  $('bottleneck-bar').innerHTML = segments.map(function(s) {
+    var pct = total > 0 ? ((s.tightness / total) * 100).toFixed(0) : 20;
+    var loose = s.tightness < 0.5 ? 'loose' : '';
+    return '<div class="bottleneck-segment ' + s.cls + ' ' + loose + '" style="flex:' + pct + '">' + s.label + ' ' + pct + '%</div>';
+  }).join('');
 }
 
-function renderTimeline() {
-  const years = [
-    { year: '2024', gwNew: '~10', gwCum: '~30', detail: 'CoWoS & power', bn: 'Power + packaging', bnClass: 'bn-power', active: false },
-    { year: '2025', gwNew: '~20', gwCum: '~50', detail: 'Behind-the-meter boom', bn: 'Power + chips', bnClass: 'bn-power', active: false },
-    { year: '2026', gwNew: '~35', gwCum: '~85', detail: 'Memory crunch hits', bn: 'Chips + clean rooms', bnClass: 'bn-chips', active: true },
-    { year: '2027', gwNew: '~45', gwCum: '~130', detail: 'New fabs coming online', bn: 'Fab capacity', bnClass: 'bn-fabs', active: false },
-    { year: '2028', gwNew: '~55', gwCum: '~185', detail: 'ASML becomes ceiling', bn: 'EUV tools', bnClass: 'bn-euv', active: false },
-    { year: '2029', gwNew: '~65', gwCum: '~250', detail: 'Tool production ~90/yr', bn: 'EUV tools', bnClass: 'bn-euv', active: false },
-    { year: '2030', gwNew: '~75', gwCum: '~325', detail: '~700 total EUV tools', bn: 'EUV tools', bnClass: 'bn-euv', active: false },
-  ];
+function renderTimeline(timeline) {
+  var bnClassMap = { euv: 'bn-euv', hbm: 'bn-hbm', power: 'bn-power', monetization: 'bn-monetization' };
+  var bnLabelMap = { euv: 'EUV', hbm: 'HBM', power: 'Power', monetization: 'Demand' };
 
-  $('timeline').innerHTML = years.map(y => `
-    <div class="year-col ${y.active ? 'active' : ''}">
-      <div class="year-label">${y.year}</div>
-      <div class="year-gw">${y.gwNew}<span> GW/yr</span></div>
-      <div style="font-family:'JetBrains Mono',monospace;font-size:0.7rem;color:var(--text-dim);margin-bottom:0.4rem">${y.gwCum} cum.</div>
-      <div class="year-detail">${y.detail}</div>
-      <div class="year-bottleneck ${y.bnClass}">${y.bn}</div>
-    </div>
-  `).join('');
+  $('timeline').innerHTML = timeline.map(function(y) {
+    var active = y.year === 2026 ? 'active' : '';
+    var gwLabel = y.isHistorical ? '~' + y.newGw : y.newGw.toFixed(1);
+    var cumLabel = y.isHistorical ? '~' + y.cumulativeTotal : y.cumulativeTotal.toFixed(0);
+    var bnClass = bnClassMap[y.binding] || 'bn-chips';
+    var bnLabel = bnLabelMap[y.binding] || y.binding;
+    var trLabel = y.tightness < 0.8 ? 'loose' : y.tightness > 1.2 ? 'tight' : 'moderate';
+
+    return '<div class="year-col ' + active + '">'
+      + '<div class="year-label">' + y.year + '</div>'
+      + '<div class="year-gw">' + gwLabel + '<span> GW/yr</span></div>'
+      + '<div style="font-family:\'JetBrains Mono\',monospace;font-size:0.7rem;color:var(--text-dim);margin-bottom:0.4rem">' + cumLabel + ' cum.</div>'
+      + '<div class="year-bottleneck ' + bnClass + '">' + bnLabel + '</div>'
+      + '<div class="year-detail">' + trLabel + '</div>'
+      + '</div>';
+  }).join('');
 }
 
-function renderComparison() {
-  const maxGw = 8;
+function renderComparison(inputs, supply) {
+  var anthropicShare = 0.25;
+  var openaiShare = 0.30;
+  var anthropicGwEoy = 2 + anthropicShare * supply.actualNewGw;
+  var openaiGwEoy = 2.5 + openaiShare * supply.actualNewGw;
 
-  const data = {
+  var maxGw = Math.max(anthropicGwEoy, openaiGwEoy) * 1.2;
+  var maxArr = 30;
+
+  var data = {
     anthropic: {
-      gwNow: 2, gwEoy: 5.5, arr: 19, raised: 30,
-      strategy: 'Conservative → scrambling. Paying spot premiums, revenue-sharing through Bedrock/Vertex. Best model but compute-constrained.',
+      gwNow: 2, gwEoy: anthropicGwEoy, arr: 19, raised: 30,
+      strategy: 'Conservative \u2192 scrambling. Paying spot premiums, revenue-sharing through Bedrock/Vertex. Best model but compute-constrained.',
     },
     openai: {
-      gwNow: 2.5, gwEoy: 6.5, arr: 25, raised: 110,
+      gwNow: 2.5, gwEoy: openaiGwEoy, arr: 25, raised: 110,
       strategy: 'Aggressive from day one. Locked 5-year deals with CoreWeave, Oracle, SoftBank. Better margins on compute.',
     }
   };
-
-  const maxArr = 30;
 
   $('comparison').innerHTML = `
     <div class="company-card">
@@ -780,7 +1300,7 @@ function renderComparison() {
         </div>
         <div class="bar-row">
           <span class="bar-label">GW EOY '26</span>
-          <div class="bar-track"><div class="bar-fill bar-anthropic" style="width:${(data.anthropic.gwEoy/maxGw)*100}%">${data.anthropic.gwEoy} GW</div></div>
+          <div class="bar-track"><div class="bar-fill bar-anthropic" style="width:${(data.anthropic.gwEoy/maxGw)*100}%">${data.anthropic.gwEoy.toFixed(1)} GW</div></div>
         </div>
         <div class="bar-row">
           <span class="bar-label">ARR (Mar '26)</span>
@@ -807,7 +1327,7 @@ function renderComparison() {
         </div>
         <div class="bar-row">
           <span class="bar-label">GW EOY '26</span>
-          <div class="bar-track"><div class="bar-fill bar-openai" style="width:${(data.openai.gwEoy/maxGw)*100}%">${data.openai.gwEoy} GW</div></div>
+          <div class="bar-track"><div class="bar-fill bar-openai" style="width:${(data.openai.gwEoy/maxGw)*100}%">${data.openai.gwEoy.toFixed(1)} GW</div></div>
         </div>
         <div class="bar-row">
           <span class="bar-label">ARR (Feb '26)</span>
@@ -838,12 +1358,26 @@ function update() {
   $('euv-display').textContent = inputs.euvPerGw.toFixed(1);
   $('asml-display').textContent = inputs.asmlYear;
   $('aipct-display').textContent = (inputs.aiPct * 100).toFixed(0) + '%';
+  $('hbm-display').textContent = inputs.hbmIndex.toFixed(1) + 'x';
+  $('power-display').textContent = inputs.powerGw + ' GW';
+  $('demand-display').textContent = inputs.demandGw + ' GW';
+  $('price-decay-display').textContent = (inputs.priceDecay * 100).toFixed(0) + '%';
+  $('elasticity-display').textContent = inputs.elasticity.toFixed(1) + 'x';
+  $('target-payback-display').textContent = inputs.targetPayback + ' yrs';
+  $('labor-display').textContent = inputs.laborSeverity;
+  $('permit-display').textContent = inputs.permitSeverity;
 
-  renderPipeline(inputs);
-  renderMetrics(inputs);
-  renderBottleneck();
-  renderTimeline();
-  renderComparison();
+  const supply = computeSupply(inputs);
+
+  renderPipeline(inputs, supply);
+  renderMetrics(inputs, supply);
+  renderBottleneck(inputs, supply);
+  const timeline = computeTimeline(inputs);
+  renderTimeline(timeline);
+  const jevons = computeJevons(inputs, timeline);
+  renderJevons(jevons);
+  renderMatrix(supply);
+  renderComparison(inputs, supply);
 }
 
 // Bind all sliders
