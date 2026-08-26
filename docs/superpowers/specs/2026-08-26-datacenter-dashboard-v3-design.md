@@ -297,10 +297,10 @@ published 1 GW GB200 model, cross-checked against JLL and Turner & Townsend.
 | Rail | Parent | 2026 $B/GW | Elasticity | Lag (yr) | Provenance |
 |---|---|---|---|---|---|
 | `servers` — accelerator + server BOM | — | 21.2 | 1.0 | 0.5 | `researched` — Epoch AI 2026-05 |
-| ├ `logic` — TSMC N3/N5 wafers | servers | 1.2 | 0.25 | 2 | counts `dylan-2026-08`, prices `estimate` |
-| ├ `hbm` — HBM / memory | servers | 5.0 | 1.5 | 0.75 | `estimate` — **pending research** |
-| ├ `package` — CoWoS / substrate | servers | 1.8 | 1.3 | 1 | `estimate` — **pending research** |
-| └ vendor margin + rest of BOM | servers | 13.2 | 1.0 | 0.5 | derived residual |
+| ├ `logic` — TSMC N3/N5 wafers | servers | 1.2 | **0.20** | 2 | counts **disputed** — see below |
+| ├ `memory` — HBM4 + LPDDR5X | servers | **4.9** | **step** | 1.0 | `researched` — MS rack BOM, post-SOCAMM-cut |
+| ├ `package` — CoWoS + ABF substrate | servers | **0.6** | 1.3 | 1 | `researched` — was 3x too high |
+| └ vendor margin + rest of BOM | servers | **14.5** | 1.0 | 0.5 | derived residual |
 | `network` — networking, optics | — | 4.9 | 0.6 | 0.5 | `researched` — Epoch AI |
 | `dcElec` — in-DC electrical, switchgear, UPS | — | 5.4 | 0.35 | **2.75** | `researched` — 48% × $11.3B (T&T share) |
 | `cooling` — mechanical / liquid cooling | — | 3.7 | 0.45 | 2 | `researched` — 33% × $11.3B (T&T share) |
@@ -343,6 +343,68 @@ Back-solving `dcElec`: transformer demand rose +119% over six years against roug
 (2025 shortfall 30%), yielding +77% price. A sustained tightness near 1.3 producing 1.77x over six
 years implies a per-year multiplier of 1.10, so `1 + e × 0.3 = 1.10` → **e ≈ 0.35**. That is well
 below the 0.5 I guessed, and it is now derived from a real series rather than from an adjective.
+
+### Silicon-side repricing: measured, and faster than I modelled
+
+The chip supply chain gave up a full observed series over four quarters. This is the bullwhip,
+instrumented:
+
+| Layer | Contract structure | Observed rate |
+|---|---|---|
+| Conventional / server DRAM | quarterly, spot-linked | **+93–98% QoQ (1Q26) → +58–63% (2Q26) → +13–18% (3Q26)** |
+| ABF film (Ajinomoto, ~95% share) | annual, monopoly | **+30% in one step**, Q3'26 |
+| ABF substrate | semi-annual | +3–5% QoQ H1'26, +5–10% H2'26; AI-grade +15–40%/yr |
+| FC-BGA (Samsung Electro-Mechanics) | renegotiation | +10%, Apr 2026 |
+| **HBM** | **annual LTA, 5-yr frames** | **flat-to-down 2026, then +50–79% for 2027** |
+| CoWoS / advanced packaging | annual, allocated | +10–20%/yr ASP |
+| Foundry (advanced nodes) | annual, strategic | +3–10% for 2026; up to +25% on some services 2027 |
+| NVIDIA rack / server | per-generation | +15% early 2027; rack BOM +95% GB300 → VR200 |
+
+**Two structural corrections to the mechanic.**
+
+**HBM does not reprice continuously — it steps.** This is the opposite of what I assumed, and it is
+the single most counterintuitive finding in the research. HBM sits under multi-year LTAs, was
+*flat-to-down through 2026* while commodity DRAM nearly doubled in a single quarter, and then jumps
+50–79% in one annual reset. My continuous-elasticity formula cannot express that shape. `memory`
+therefore carries `elasticity: 'step'` — tightness accumulates as pressure and discharges at the
+contract reset, rather than bleeding into price each year.
+
+**The bullwhip is bifurcated by buyer size.** TrendForce attributes 3Q26's moderation directly to
+*"multi-year long-term agreements which restrict suppliers from raising prices"* for large CSPs —
+smaller buyers eat the full increase. SK hynix has LTAs with ~10 customers on 5-year terms; Micron
+holds **$18B of customer cash deposits**. So labs and hyperscalers face a materially different price
+path from the arbitrage shelf, which is exactly the buyer class our demand model already separates.
+
+### Margin is the tell — and these are validation targets
+
+Disclosed FY2026 profitability across the rails, all Tier 1:
+
+| Layer | Margin | Company |
+|---|---|---|
+| Memory | **76% OP margin** / **84.9% GM** | SK hynix Q2'26 / Micron FQ3'26 |
+| Accelerator | **75.0% GM**, guiding 74.0% | NVIDIA Q2 FY27 (reported 2026-08-26) |
+| Foundry | **67.7% GM** | TSMC Q2'26 |
+| Substrate | **~29% Electronics OP margin** | Ibiden Q1 FY26 |
+
+The margin-migration mechanic must reproduce this ordering. It is a harder test than the historical
+backtest because it is a *level* check, not a direction check.
+
+Two pieces of evidence worth encoding directly:
+
+**Foundry's slowness is a choice, not a constraint.** TSMC's CEO, on the Q2 2026 call: *"I'm really
+jealous about memory companies, 86% gross margin… About 68%, I would be happy about that,"* and
+*"we don't suddenly increase our price by 4x or 5x… we earn our value."* The CFO calls pricing
+*"strategic, not opportunistic."* Our `logic` elasticity of 0.20 encodes a management policy, not a
+physical response time — and policy can change faster than physics. Worth a scenario toggle.
+
+**Ibiden gives the cleanest price-vs-volume decomposition available anywhere.** Of the ¥35B increase
+in FY2026 Electronics operating-profit guidance, **¥26.5B was ASP and mix and only ~¥3B was volume**
+— 76% price, 9% volume. That is direct proof that a tight rail converts scarcity into margin rather
+than into output, which is the entire premise of the margin-migration model.
+
+**Measured OEM damping:** NVIDIA is absorbing ~300–400bps of gross margin (75.0% → guided 74.0%,
+reportedly bottoming 71–72%) while passing ~15% through to server prices with roughly a two-quarter
+lag. That is a directly observed damping coefficient at the OEM node, not an assumption.
 
 ### annuity rails — capacity ceilings and amortized cost only
 
@@ -407,10 +469,43 @@ The transcript's fab numbers held up under primary-source checking, and the deri
 
 | Anchor | Verdict |
 |---|---|
-| 3.5 EUV tool-years per GW/yr | **Supported**, with derivation — ~2M EUV wafer passes per GW from 55K N3 + 6K N5 + 170K DRAM wafers at ~20 passes/wafer, 75 wph, 90% uptime |
+| 3.5 EUV tool-years per GW/yr | Derivation located, but **rests on a disputed input** — see below |
 | $3–4B WFE per GW/yr | **Supported** |
 | $6B fab all-in per GW/yr | **Supported verbatim** |
 | $400M per EUV tool | **Contradicted** for 2025; forward-looking only |
+| 170K DRAM wafers per GW | **Supported** — bottom-up gives ~140K, within 20% |
+| 55K N3 wafers per GW | **Disputed by 3x** — see below |
+
+### The 55,000 N3 wafer figure is the model's largest single uncertainty
+
+The 3.5-tools-per-GW coefficient is *derived from* the wafer counts: ~2M EUV passes per GW comes
+from 55K N3 + 6K N5 wafers at ~20 passes each. So if the wafer count is wrong, the EUV coefficient
+is wrong by the same factor, and the EUV rail moves with it.
+
+A bottom-up die count contradicts it. At Foxconn's disclosed **3,557 racks/GW** × 72 packages =
+~256,000 Rubin packages/GW, each carrying two near-reticle N3 compute dies → ~512,000 dies. At
+~730mm², a 300mm wafer yields ~76 gross and ~47 good at D0 ≈ 0.07/cm² → **~10,900 wafers**. Adding
+I/O dies, Vera CPU, NVLink switch, ConnectX and CPO silicon reaches **~17,000–20,000 N3-class
+wafers/GW**. Hitting 55,000 would require ~9 good dies per wafer from a 730mm² die, which is not
+physically plausible.
+
+Two top-down checks *support* 55,000 — TSMC's disclosed "high-teens %" AI revenue implies ~$1.8B of
+TSMC content per GW against the anchor's ~$1.4B, and 20 GW × 55K reconciles with SemiAnalysis's
+separately published "AI ≈ 60% of N3 output in 2026." But that second check is circular (same shop),
+and the first is consistent with either reading once packaging and non-GPU silicon are included.
+
+Most likely resolution: **55,000 is an all-in system figure** covering networking, optics, CPU, HBM
+base dies, and yield/binning loss — not GPU compute wafers, which are ~11,000–13,000/GW.
+
+Notably, Dylan states the figure in March 2026 and never restates or defends it; Dwarkesh repeats it
+back in the August episode and Dylan does not engage. No published derivation exists.
+
+**Model treatment.** `logicWafersPerGw` becomes a slider spanning **20,000–55,000** (default 55,000
+to stay Dylan-calibrated), and `euvToolsPerGw` is **derived from it** rather than entered
+independently — they are not free parameters. At the low end the EUV coefficient falls to ~1.3
+tools/GW and the EUV rail goes from slack to irrelevant. Since the spec already concludes EUV never
+binds, this uncertainty only strengthens that conclusion; it would need to resolve the *other* way,
+well above 55,000, to threaten it.
 
 One transcript detail to avoid repeating: the claim that a scanner has "18 of these lenses"
 conflicts with the documented **6 mirrors** in 0.33-NA projection optics and **8** in High-NA. It is
@@ -678,16 +773,25 @@ The `power`/`dc` pair is worth dwelling on: two ~2x errors in opposite direction
 the right total**. No amount of top-line calibration would have caught it. Rails have to be sourced
 individually.
 
+| `memory` | $5.0B/GW (`hbm`) | **$4.9B/GW**, step-repricing | estimate was close; the *shape* was wrong |
+| `package` | $1.8B/GW | **$0.6B/GW** | ~3x too high |
+
+`package` decomposes as CoWoS-L at ~$950/package × 256K packages/GW ≈ $244M, ~$460M including
+packaging yield loss, plus ~$90–115M of ABF substrate across the full rack. `memory` is the
+post-SOCAMM-cut all-memory figure (HBM4 + LPDDR5X); NVIDIA halved SOCAMM capacity in July 2026,
+taking rack LPDDR from ~55TB to ~28TB, so the pre-cut $7.1B/GW is now stale.
+
+HBM wafer intensity resolves to **3.0x** commodity DRAM, not the 4x SemiAnalysis projects: Micron's
+HBM architecture fellow stated ~3x at Hot Chips on 2026-08-23 and said it would *"definitely not get
+better,"* and TrendForce's published wafer-share and bit-share series independently imply 2.9x for
+both 2026 and 2027. Use 3.0x with a 2.5–3.5x sensitivity.
+
 ### Still open
 
-| Rail | Current estimate | Needed |
-|---|---|---|
-| `hbm` | $5.0B/GW | HBM stack cost, stacks per accelerator, DRAM wafer intensity vs commodity |
-| `package` | $1.8B/GW | CoWoS wafer cost, ABF substrate unit cost, packaging share of accelerator BOM |
-
-Research still running. `servers` currently carries a $13.2B residual that these two will partly
-resolve; if they come in materially different, the residual absorbs the difference and the
-`servers` total stays pinned to Epoch's $21.2B.
+| Rail | Issue |
+|---|---|
+| `servers` | Epoch's $21.2B is **GB200-based**. Morgan Stanley's VR200 rack BOM × 3,557 racks/GW gives ~$27.7B, and Foxconn puts Vera Rubin at ~$47B/GW all-in vs ~$40.5B for Blackwell. The rail needs a **generation dimension**, not a single 2026 value. |
+| `logic` | Wafer count disputed 3x (above). Slider, not a constant. |
 
 ### Permanently unavailable
 
