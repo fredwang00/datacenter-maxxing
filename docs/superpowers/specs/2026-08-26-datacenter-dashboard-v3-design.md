@@ -35,9 +35,10 @@ Applied correctly against today's installed base of roughly 250–300 EUV tools 
 allocation: `~165 / 3.5 ≈ 47 GW/yr` of theoretical fab capacity, against 30 GW actually added in
 2026.
 
-**EUV is not the binding constraint and will not be until roughly 2029–30.** v1's central claim —
-a hard ~12 GW/yr EUV ceiling — is an artifact of the bug. Dylan names the real one directly: "the
-world is capital constrained."
+**EUV is not the binding constraint.** v1's central claim — a hard ~12 GW/yr EUV ceiling — is an
+artifact of the bug. Dylan names one real constraint directly ("the world is capital constrained");
+primary-source research on ASML's disclosed capacity plan and 2026 turbine lead times points to two
+more, and to EUV staying slack through 2030. See *EUV tool supply is disclosed, not guessed* below.
 
 ### Calibration is 3–5x low
 
@@ -140,6 +141,22 @@ carries an explicit `basis` field; the renderer and the aggregator both assert o
 
 v1 violates this at `:683` — `leverage = capex / euvCostPerGw` divides a one-time deployment cost by
 a capacity annuity. The v3 replacement is the amortization result below.
+
+### Second guard: IT load vs facility load
+
+`$/GW` is ambiguous between **GW of critical IT load** and **GW of grid-facing facility load**. At
+PUE 1.2–1.3 that is a 20–30% swing — large enough to explain most apparent disagreements between
+published per-GW figures, and large enough to silently corrupt the calibration panel.
+
+All rails in this spec are defined on an **IT-load basis**, matching Epoch AI's convention, which is
+the most methodologically transparent public model. A `pue` parameter (default 1.25) converts to
+facility load for comparison against sources that use it.
+
+This is an unresolved calibration question, not a solved one. Dylan's "$1T+ capex / 30 GW" implies
+**$35B/GW**; Epoch's bottom-up GB200 model gives **$37.9B/GW** grid-powered; and if his 30 GW is
+facility load then the IT-basis figure is nearer $44B/GW. Published comparables span the range —
+Barclays $50–60B, Huang $50–80B, JLL ~$30B blended across AI and non-AI. The calibration panel must
+display which basis each target uses, and a mismatch there is a bug, not a modelling choice.
 
 ### The amortization result
 
@@ -274,33 +291,131 @@ is numeric and slider-exposed rather than categorical, so the historical backtes
 Rails may nest via `parent`. Only top-level rails sum, which prevents double counting while
 preserving sub-rail margin analysis — which is where the memory-vs-TSMC story lives.
 
+All figures on an **IT-load basis** (see the load-basis guard below). Anchored on Epoch AI's
+published 1 GW GB200 model, cross-checked against JLL and Turner & Townsend.
+
 | Rail | Parent | 2026 $B/GW | Elasticity | Lag (yr) | Provenance |
 |---|---|---|---|---|---|
-| `accel` — accelerator vendor | — | 17.0 | 1.0 | 0.5 | derived |
-| ├ `logic` — TSMC N3/N5 wafers | accel | 1.2 | 0.25 | 2 | wafer counts `dylan-2026-08`, prices `estimate` |
-| ├ `hbm` — HBM / memory | accel | 5.0 | 1.5 | 0.75 | `estimate` — **pending research** |
-| ├ `package` — CoWoS / substrate | accel | 1.8 | 1.3 | 1 | `estimate` — **pending research** |
-| └ vendor margin + non-die BOM | accel | 9.0 | 1.0 | 0.5 | derived residual |
-| `network` — networking, optics, servers | — | 7.0 | 0.6 | 0.5 | `estimate` |
-| `power` — generation | — | 5.0 | 0.7 | 3 | `estimate` — **pending research** |
-| `dc` — shell, electrical, cooling | — | 6.0 | 0.5 | 2 | `estimate` |
-| **Total** | | **35.0** | | | reproduces $1.05T ÷ 30 GW |
+| `servers` — accelerator + server BOM | — | 21.2 | 1.0 | 0.5 | `researched` — Epoch AI 2026-05 |
+| ├ `logic` — TSMC N3/N5 wafers | servers | 1.2 | 0.25 | 2 | counts `dylan-2026-08`, prices `estimate` |
+| ├ `hbm` — HBM / memory | servers | 5.0 | 1.5 | 0.75 | `estimate` — **pending research** |
+| ├ `package` — CoWoS / substrate | servers | 1.8 | 1.3 | 1 | `estimate` — **pending research** |
+| └ vendor margin + rest of BOM | servers | 13.2 | 1.0 | 0.5 | derived residual |
+| `network` — networking, optics | — | 4.9 | 0.6 | 0.5 | `researched` — Epoch AI |
+| `dcElec` — in-DC electrical, switchgear, UPS | — | 5.4 | 0.35 | **2.75** | `researched` — 48% × $11.3B (T&T share) |
+| `cooling` — mechanical / liquid cooling | — | 3.7 | 0.45 | 2 | `researched` — 33% × $11.3B (T&T share) |
+| `shell` — civil, land, utility works | — | 2.5 | 0.30 | 2 | `researched` — 19% × $11.3B + Epoch land |
+| `power` — generation adder | — | **0.5** | 0.70 | **5.0** | `researched` — see generation modes |
+| **Total (grid-connected)** | | **38.2** | | | vs Epoch's independent $37.9B |
 
-IT subtotal (`accel` + `network`) = $24.0B; DC + energy = $11.0B. By 2028 rail repricing should
-carry these to roughly $35.7B and $16.3B for a $52B/GW total, matching $3.65T ÷ 70 GW — from the
-elasticities alone, with no hand-tuning.
+Three independent sources converge on **$11.3–11.4B/GW** for facility (shell + in-DC electrical +
+cooling): Epoch AI's bottom-up $11.43B, JLL's $11.3M/MW shell-and-core, and Turner & Townsend's
+52-market index. That agreement to within 1% is the strongest calibration point in the whole model.
+
+**`power` is a mode, not a scalar.** Generation cost per GW of datacenter load, assuming ~1.15 GW
+nameplate to firmly serve 1 GW:
+
+| Mode | $B/GW | Time to power | Source |
+|---|---|---|---|
+| Grid-connected (default) | 0.05–0.5 | 4–7 yr queue | interconnection cost data |
+| Dedicated CCGT | **2.3–3.0** | 24mo build + **5yr turbine lead** | Lazard v19, BNEF, GridLab |
+| Simple-cycle bridge | 1.3–1.9 | 24mo + 18–36mo lead | Lazard v19 |
+| New nuclear | **14–20** | **84 months** | Lazard v19 |
+
+**This corrects two errors of roughly 2x in opposite directions.** My draft had `power` at $5.0B/GW
+(actual: $0.5–3.0B unless nuclear) and `dc` at $6.0B/GW (actual: ~$11.4B). They happened to cancel
+in the total, which is exactly the kind of compensating error a calibration panel would never catch.
+
+### Elasticities are now calibrated, not guessed
+
+Observed price series from the research replace my reading of Dylan's qualitative "fast/slow":
+
+| Component | Price change | Period | Implied annual |
+|---|---|---|---|
+| Gas turbine equipment | +195% | vs 2019 | ~+16%/yr |
+| CCGT installed | $1,500 → $2,157/kW (+44%) | 2023–25 | ~+20%/yr |
+| Power transformers | +77% | since 2019 | ~+10%/yr |
+| Distribution transformers | up to +95% | since 2019 | ~+12%/yr |
+| MV switchgear | +50% | since 2021 | ~+8%/yr |
+| MV circuit breakers | +47% | since 2021 | ~+8%/yr |
+
+Back-solving `dcElec`: transformer demand rose +119% over six years against roughly flat supply
+(2025 shortfall 30%), yielding +77% price. A sustained tightness near 1.3 producing 1.77x over six
+years implies a per-year multiplier of 1.10, so `1 + e × 0.3 = 1.10` → **e ≈ 0.35**. That is well
+below the 0.5 I guessed, and it is now derived from a real series rather than from an adjective.
 
 ### annuity rails — capacity ceilings and amortized cost only
 
 | Rail | Parent | $B per GW/yr | Elasticity | Lag (yr) | Provenance |
 |---|---|---|---|---|---|
-| `euv` — EUV tools (ASML) | — | 1.4 | 0.3 | 3 | 3.5 × $400M, `dylan-2026-08` |
-| └ `optics` — mirrors (Zeiss) | euv | 0.4 | 0.1 | 4 | `estimate` — **pending research** |
-| `otherWfe` — DUV, etch, depo, metrology | — | 2.1 | 0.4 | 2 | derived to hit $3.5B WFE |
+| `euv` — EUV tools (ASML) | — | **0.95** | 0.3 | 3 | `researched` — 3.5 × realized ASP |
+| └ `optics` — mirrors (Zeiss) | euv | **0.23** | 0.1 | **4+** | `researched` — see derivation |
+| `otherWfe` — DUV, etch, depo, metrology | — | 2.55 | 0.4 | 2 | derived to hit $3.5B WFE |
 | `fabshell` — cleanroom + shell | — | 2.5 | 0.5 | 2 | derived to hit $6B total |
-| **Total** | | **6.0** | | | `dylan-2026-08` |
+| **Total** | | **6.0** | | | `dylan-2026-08`, verbatim |
 
 WFE subtotal (`euv` + `otherWfe`) = $3.5B, inside the stated $3–4B.
+
+**The $400M/tool figure in the transcript is wrong for 2025 actuals.** ASML recognized 48 EUV
+systems on €11.6bn of EUV net system sales in FY2025 → **realized blended ASP €242M (~$265–285M)**.
+The $380–400M price belongs to High-NA (EXE:5000/5200), not the Low-NA NXE tools that make up 44 of
+those 48 units. Dylan's number is defensible as a forward 2027+ figure under High-NA mix shift, but
+it overstates today by 20–25%, and 3.5 × $400M = $1.4B was carrying that error into our rail.
+
+**`optics` derivation.** ASML's disclosed related-party purchases from Carl Zeiss SMT were
+**€4,406.9M in 2025 = 28.6% of total cost of sales**, a ratio stable in a 28–34% band across twenty
+years of 20-F filings. No EUV/DUV split is disclosed by anyone, so the per-tool optics content must
+be inferred: **€45–70M per Low-NA tool** (~20–29% of ASML's EUV ASP), bounded above by €92M/tool
+(the unreachable case where DUV, metrology and spares contain zero Zeiss content). At 3.5 tools:
+**$185–285M per GW/yr, or 3–5% of the $6B fab cost.** Confidence stays Low-Medium — this remains
+the weakest-sourced rung in the model and keeps its flag.
+
+**Why the rail exists at all**, from ASML's own 2025 risk factors (p.69):
+
+> "The number of lithography systems we are able to produce is limited by the production capacity of
+> one of our key suppliers, Carl Zeiss SMT, our sole supplier of lenses, mirrors, illuminators,
+> collectors and other critical optical components… if Carl Zeiss SMT were to terminate its supply
+> relationship with us or be unable to maintain production of optics over a prolonged period, we
+> would effectively cease to be able to conduct our business."
+
+Note the live disagreement: ASML's filing and Dylan both say Zeiss is the binding constraint; Zeiss
+SMT's CEO said publicly in August 2026 that it is not. Both hold if ASML's ramp plan is *itself set
+by* what Zeiss can deliver — which is why `optics` sits upstream of `euv` as its parent rail rather
+than as a peer.
+
+### EUV tool supply is disclosed, not guessed
+
+ASML's CEO gave hard capacity guidance on the Q2 2026 call: **~65 Low-NA systems in 2026, +30% for
+2027 (~85), and a further +30% under investigation for 2028 (~110)** — all within the existing
+footprint. `cumulativeEuvTools` should be driven by this series rather than by a slider guess, with
+the slider expressing deviation from it.
+
+**This contradicts the transcript, in the direction that matters.** Dylan puts ~100 tools/yr at
+2030; ASML's own plan reaches ~110/yr by **2028**, two years earlier. Running the corrected stock
+model on ASML's numbers — roughly 290–300 cumulative tools at end-2025, +65/+85/+110 — gives an EUV
+ceiling of about **50 GW/yr in 2026 rising to ~93 GW/yr by 2028** at 60% AI allocation, against 30
+and 70 GW of actual demand.
+
+**EUV does not bind at any point in the 2026–2030 window under ASML's disclosed plan.** That is a
+stronger conclusion than the one in this spec's opening, and it is sourced to the supplier rather
+than inferred. The rail stays in the model — it is the right place for a Zeiss shock to enter — but
+the base case should show it slack throughout.
+
+### Anchors that survived
+
+The transcript's fab numbers held up under primary-source checking, and the derivation surfaced:
+
+| Anchor | Verdict |
+|---|---|
+| 3.5 EUV tool-years per GW/yr | **Supported**, with derivation — ~2M EUV wafer passes per GW from 55K N3 + 6K N5 + 170K DRAM wafers at ~20 passes/wafer, 75 wph, 90% uptime |
+| $3–4B WFE per GW/yr | **Supported** |
+| $6B fab all-in per GW/yr | **Supported verbatim** |
+| $400M per EUV tool | **Contradicted** for 2025; forward-looking only |
+
+One transcript detail to avoid repeating: the claim that a scanner has "18 of these lenses"
+conflicts with the documented **6 mirrors** in 0.33-NA projection optics and **8** in High-NA. It is
+probably a full-optical-path count including collector and illuminator, but no source gives a clean
+total, so the UI should not cite it.
 
 ### Margin migration
 
@@ -384,9 +499,51 @@ declines by default, per Dylan's non-consensus call.
 compute announcements — the model's best real-world validation signal, and the reasoning behind
 "compute adds accelerated while ARR adds plateaued, so the marginal megawatt went to R&D."
 
-**`regDrag`** carries the New York bans, Texas moratoriums, withheld Astra and Mythos 2. It
-suppresses `revPerMw` → lowers `labWtp` → lowers clearing price → starves supply. One coefficient
-propagating the full causal path Dylan describes for how the 100 GW target fails.
+### Regulatory drag is discrete, not smooth
+
+My draft had `regDrag` as a single smooth coefficient. The 2026 evidence says that is the wrong
+shape. Two of the largest US markets went to effectively zero new approvals **three weeks apart**:
+
+- **New York, 14 July 2026** — Executive Order 62: one-year moratorium on discretionary DEC
+  environmental permits for datacenters ≥50 MW, effective immediately, applications held in abeyance.
+- **Texas, 3 August 2026** — Governor's directive requiring an audit of every datacenter project in
+  ERCOT's interconnection queue before any further approvals. ERCOT told press this "effectively
+  pauses all data center projects." Audit completes December 2026. ERCOT's queue holds ~474 GW of
+  requests, ~90% datacenter — **five times ERCOT's record peak demand**.
+- **Ohio** — not a moratorium but a tariff: datacenters >25 MW pay for ≥85% of subscribed capacity
+  for up to 12 years regardless of consumption, plus collateral and exit penalties.
+
+Nationally: **300+ datacenter bills across 30+ states in the first six weeks of the 2026 session**
+(vs 200+ across 40+ states in all of 2025), and **14 states considering statewide moratoriums**.
+
+This validates the transcript's aside — "New York's banning data centers, Texas is holding
+moratoriums, Ohio's saying you have to pay everyone's property tax" — as current fact rather than
+prediction. It also means the model needs **discrete, correlated, jurisdiction-level stop events**,
+not a smooth multiplier: a Bernoulli draw per jurisdiction per year, with correlation, because the
+observed behavior is step-function and contagious across states.
+
+`regDrag` retains its second, separate channel — withheld model releases (Astra, Mythos 2)
+suppressing `revPerMw` → `labWtp` → clearing price → supply. That one *is* smooth. The two channels
+must not be collapsed into one coefficient.
+
+### Announcement-to-delivery attrition
+
+Announced capacity is a bad predictor of delivered capacity, and now we have the discount rates:
+
+| Measure | Ratio | Source |
+|---|---|---|
+| Interconnection queue capacity reaching COD | **13%** | LBNL *Queued Up* 2026 |
+| Behind-the-meter: 2 GW online vs 90 GW announced | **2.2%** | Cleanview 2026 |
+| Eaton's 307 GW DC backlog converting near-term | **~20%**, majority 2028+ | Eaton Q2 2026 call |
+| Typical queue time to COD | **55 months** | LBNL |
+
+Eaton describes its 307 GW pipeline as "15 years of backlog at 2025 build rates." Any pipeline the
+model ingests must be discounted by these factors before it becomes capacity, or the supply rails
+will be systematically optimistic by roughly an order of magnitude.
+
+The hardest number here: **EIA expects only 6.3 GW of new US gas capacity in 2026** against a
+combined OEM backlog of ~220 GW — gas is being *ordered* at roughly ten times the rate it is being
+*commissioned*. That gap is the bullwhip, measured.
 
 **Diffusion ceiling:**
 
@@ -464,8 +621,11 @@ The engine at default settings must reproduce, within 10%:
 | 2029 new GW | 90–100 | transcript |
 | 2028 cumulative world GW | ~200 | transcript |
 | 2028 total capex | $3.5T | transcript |
-| 2026 capex per GW | $35B | derived: $1.05T ÷ 30 |
+| 2026 capex per GW | $35B facility / $38B IT-basis | derived vs Epoch AI — **see load-basis guard** |
 | 2028 capex per GW | $52B | derived: $3.65T ÷ 70 |
+| Facility subtotal (shell+elec+cooling) | $11.3–11.4B | Epoch, JLL, T&T converge |
+| Turbine lead time | 5 yr | GE Vernova 2031 reservations |
+| EUV ceiling 2026 / 2028 | ~50 / ~93 GW/yr (slack) | ASML disclosed 65/85/110 |
 | Cumulative capex 2024–29 | $11T | SemiAnalysis model |
 | Cumulative credit 2024–29 | $5T | SemiAnalysis model |
 | Lab share of 2028 incremental | 70–80% | transcript |
@@ -505,15 +665,58 @@ Permanently out:
 
 ## Open Items
 
-Four rail constants are estimates pending web research, marked `estimate` in `rails.js` and
-visibly flagged in the UI until resolved:
+### Resolved by research
+
+| Rail | Was | Now | Change |
+|---|---|---|---|
+| `power` | $5.0B/GW, lag 3yr | $0.5B grid / $2.3–3.0B gas, **lag 5yr** | ~2x too expensive, and the lag was badly wrong |
+| `dcElec` + `cooling` + `shell` | $6.0B/GW combined | **$11.4B/GW** | ~2x too cheap — cancelled the `power` error in the total |
+| `euv` | $1.4B per GW/yr | **$0.95B** | $400M/tool is High-NA, not realized ASP |
+| `optics` | $0.4B per GW/yr | **$0.23B** ($185–285M) | now bounded by ASML's disclosed Zeiss purchases |
+
+The `power`/`dc` pair is worth dwelling on: two ~2x errors in opposite directions that **summed to
+the right total**. No amount of top-line calibration would have caught it. Rails have to be sourced
+individually.
+
+### Still open
 
 | Rail | Current estimate | Needed |
 |---|---|---|
-| `optics` | $0.4B per GW/yr | Zeiss optics as share of EUV tool cost. May be permanently unavailable — Zeiss does not disclose it. |
 | `hbm` | $5.0B/GW | HBM stack cost, stacks per accelerator, DRAM wafer intensity vs commodity |
 | `package` | $1.8B/GW | CoWoS wafer cost, ABF substrate unit cost, packaging share of accelerator BOM |
-| `power` | $5.0B/GW, lag 3yr | Turbine $/GW **and quoted lead time**. Lead time matters more than price — if turbines quote at 4–5 years rather than 3, the 2028 power rail binds far harder than the transcript implies. |
+
+Research still running. `servers` currently carries a $13.2B residual that these two will partly
+resolve; if they come in materially different, the residual absorbs the difference and the
+`servers` total stays pinned to Epoch's $21.2B.
+
+### Permanently unavailable
+
+These stay flagged estimates regardless of further research:
+
+- **Zeiss optics content per EUV tool.** No public figure exists in dollars or percent — not from
+  ASML, Zeiss, or any analyst. The related-party purchase total is the only handle and it has no
+  EUV/DUV split. Zeiss reports no SMT-segment capex, EBIT or balance sheet.
+- **No Zeiss primary source for "100 EUV tools/year by 2030."** The only trace is the transcript
+  paraphrasing Zeiss. Use ASML's disclosed 65/85/110 series instead.
+- **Mirror polishing throughput.** "Months per mirror," and a 2021-vintage "more than a year" quote,
+  is as granular as the public record gets.
+- **2026 switchgear, UPS, chiller and generator lead times.** Only vendor and trade-press estimates.
+  A real gap, since switchgear is plausibly as binding as transformers.
 
 If a figure cannot be sourced, the rail keeps its estimate and stays flagged rather than being
 dropped. A visible estimate is more useful than a missing rung.
+
+### Worth pulling from primary sources
+
+Things a subscription or an institutional login would resolve that web search could not:
+
+1. **SemiAnalysis Datacenter Industry Model** (paywalled). It is the source of the $11T/$5T capex
+   and credit figures we are calibrating against, and we could not verify them against a primary
+   document.
+2. **SPIE 12953 (2024), "EUV optics at ZEISS: status, outlook, and future"** — the most likely
+   public source of optics manufacturing throughput detail. Paywalled.
+3. **Turner & Townsend Data Centre Construction Cost Index** (gated). We have the headline $/W and
+   the electrical/mechanical cost shares only through secondary coverage.
+4. **EPRI's gas turbine pricing publication** — its $2,000→$3,000/kW figure has no stated scope, and
+   at installed-cost scope it sits ~15% above Lazard's high case. Scope confirmation would settle
+   the `power` stress case.
