@@ -1,6 +1,7 @@
 // Regression test for the browser-fallback path. rails.js, presets.js, and
 // engine.js all need to work as plain <script>-tag globals, with no
-// `require`/`module` in scope — that's how docs/index.html will load them.
+// `require`/`module` in scope — that's how docs/datacenter-economics.html
+// loads them.
 //
 // Top-level `const`/`let` in a classic script do NOT become properties of
 // the global object (only `var` and function declarations do), so a naive

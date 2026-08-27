@@ -40,7 +40,14 @@ const DEFAULT_INPUTS = {
   powerMode: 'grid',              // grid | ccgt | peaker | nuclear
   // demand
   labGrowthRate: 3.0,             // labs triple per year
-  wtpFraction: 0.50,              // labs pay ~$13M/MW while generating ~$50M
+  // Labs' WILLINGNESS to pay, as a fraction of what they generate. Dylan's
+  // figure: they would pay ~$50M/MW while generating ~$100M/MW.
+  // Do NOT set this to 0.26. That is the observed CLEARING OUTCOME (they pay
+  // ~$13M today while generating ~$50M), not their willingness. Feeding the
+  // outcome back in as an input makes labWtp equal the starting computePrice
+  // exactly, so clearPrice clamps to [floorCost, labWtp] and price can never
+  // move — the whole market mechanic goes inert.
+  wtpFraction: 0.50,
   wtpFractionGrowth: 0.18,        // how fast that fraction rises — the key slider
   hyperscalerDemandGw: 12,
   hoarderBuildGw: 4,
@@ -64,17 +71,22 @@ const DEFAULT_INPUTS = {
   captureRateGrowth: 0.35,
 };
 
+// `basis` records the units denominator so the calibration panel never compares
+// an IT-load figure against a facility-load one (a 20-30% error at PUE 1.25).
+// Only PER-GW targets carry a load basis. A TOTAL-dollar target has no GW
+// denominator, so its basis is 'none' — the same datacenter costs the same
+// dollars whether you describe it as 1 GW IT or 1.25 GW facility.
 const CALIBRATION_TARGETS = [
   { id: 'gw2026', label: '2026 new GW', source: 'transcript', basis: 'none', year: 2026, target: 30, tolerance: 0.10 },
   { id: 'gw2027', label: '2027 new GW', source: 'transcript', basis: 'none', year: 2027, target: 50, tolerance: 0.10 },
   { id: 'gw2028', label: '2028 new GW', source: 'transcript', basis: 'none', year: 2028, target: 70, tolerance: 0.10 },
   { id: 'gw2029', label: '2029 new GW', source: 'transcript', basis: 'none', year: 2029, target: 95, tolerance: 0.12 },
   { id: 'cumGw2028', label: '2028 cumulative world GW', source: 'transcript', basis: 'none', year: 2028, target: 200, tolerance: 0.10 },
-  { id: 'capex2028', label: '2028 total capex ($B)', source: 'transcript', basis: 'facilityLoad', year: 2028, target: 3500, tolerance: 0.15 },
+  { id: 'capex2028', label: '2028 total capex ($B)', source: 'transcript', basis: 'none', year: 2028, target: 3500, tolerance: 0.15 },
   { id: 'capexPerGw2026', label: '2026 $B/GW', source: 'epoch-ai', basis: 'itLoad', year: 2026, target: 38.2, tolerance: 0.10 },
   { id: 'capexPerGw2028', label: '2028 $B/GW', source: 'derived', basis: 'itLoad', year: 2028, target: 52, tolerance: 0.15 },
   { id: 'price2028', label: '2028 compute price ($M/MW)', source: 'transcript', basis: 'none', year: 2028, target: 40, tolerance: 0.20 },
-  { id: 'cumCapex2029', label: 'Cumulative capex 24-29 ($B)', source: 'semianalysis-model', basis: 'facilityLoad', year: 2029, target: 11000, tolerance: 0.20 },
+  { id: 'cumCapex2029', label: 'Cumulative capex 24-29 ($B)', source: 'semianalysis-model', basis: 'none', year: 2029, target: 11000, tolerance: 0.20 },
   { id: 'cumCredit2029', label: 'Cumulative credit 24-29 ($B)', source: 'semianalysis-model', basis: 'none', year: 2029, target: 5000, tolerance: 0.20 },
   { id: 'labShare2028', label: 'Lab share of 2028 incremental', source: 'transcript', basis: 'none', year: 2028, target: 0.75, tolerance: 0.15 },
 ];

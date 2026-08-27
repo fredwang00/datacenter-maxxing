@@ -87,16 +87,28 @@ matching the stated "70–80% of incremental." And 70 GW × $50B/GW = **$3.5T**,
 
 | Rung | Value | Note |
 |---|---|---|
-| Cost to own + operate | ~11–12 | derived: 5yr amort + ~$0.5B power + opex |
+| Cost to own + operate | **~8–9** | derived: `capexPerGw`/5yr + ~$1.5 power & opex — see below |
 | Commodity rental | 10–15 | "anyone can make money at $10-15M/MW" |
 | Scarcity / hoarder | 25–50 | SpaceX → Google at "$40B a gigawatt" |
 | Lab revenue | 50–60 now → 70–80 (end '27) → 100 | Anthropic "$60+ billion per gigawatt" |
 | End-user capture | 200–500 | Jane Street. **Marginal rate, does not scale.** |
 | Full-AGI ceiling | ~100 ("many hundreds") | 1M workers × $100K. Speculative. |
 
-The thin margin between cost (~11–12) and commodity rental (13) is why "anyone can make money…
-it's not that hard" is true *and* why Elon would not sell at $15 but does at $25. Internal
-consistency here is evidence the numbers are real.
+**Correction (2026-08-27).** This rung previously read "~11–12," derived when the model's capex was
+~$50B/GW. After the rails were sourced individually the IT-basis total is **$38.2B/GW**, so
+`38.2 / 5 + 1.5 ≈ 9.1`. The renderer computes it from `capexPerGw` rather than hard-coding it, so it
+tracks the rails automatically.
+
+This matters because it weakens a claim the earlier draft made. At ~$11–12 against a $13 rental,
+the owner's margin looked razor-thin, which read as a neat explanation for why "anyone can make
+money… it's not that hard" *and* why Elon would not sell at $15 but does at $25. At ~$9 the margin
+is a 40–45% markup — comfortable, not thin.
+
+The honest reading: the "anyone can make money" claim still holds (rental clears above cost), but
+the *thinness* was an artifact of the stale capex figure, not evidence. Note also that Dylan's
+$10–15M/MW and $50B/GW figures may be facility-basis while our rails are IT-basis — a 20–30% wedge
+that would move cost back toward $11. That ambiguity is the unresolved calibration question in the
+load-basis guard below, and it is exactly why the calibration panel must label each figure's basis.
 
 ### Fab economics
 
