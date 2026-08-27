@@ -117,6 +117,25 @@ Object.freeze(DEFAULT_INPUTS);
 // Only PER-GW targets carry a load basis. A TOTAL-dollar target has no GW
 // denominator, so its basis is 'none' — the same datacenter costs the same
 // dollars whether you describe it as 1 GW IT or 1.25 GW facility.
+//
+// `outOfSample: true` marks the four targets spec:758 calls out as
+// independent of the GW discussion the model IS fitted against -- hitting
+// them validates the engine on numbers it was never tuned to. At
+// DEFAULT_INPUTS, 0 of these 4 pass; the calibration panel (render.js
+// calibrationHtml) states that count plainly rather than only surfacing the
+// two GW/lab-share misses the page header calls out by name.
+//
+// WINDOW MISMATCH (I5, final review): cumCapex2029 and cumCredit2029 are
+// labelled against the source's stated 2024-29 cumulative window, but
+// simulate() only accumulates cumulativeCapex/cumulativeCredit from
+// START_YEAR (2026) -- see engine.js. Two of the source's six years (2024,
+// 2025) are structurally absent from the model's number, which is part of
+// why the model's cumulative figures run low against the 24-29 target
+// independent of any capital or physical ceiling binding. Relabelled below to
+// say what the model actually covers rather than silently comparing
+// mismatched windows. Not adding a synthetic 2024-25 baseline: it would need
+// assumptions this model doesn't make anywhere else, and target/tolerance
+// values are intentionally left untouched (11000 and 5000 stay as sourced).
 const CALIBRATION_TARGETS = [
   { id: 'gw2026', label: '2026 new GW', source: 'transcript', basis: 'none', year: 2026, target: 30, tolerance: 0.10 },
   { id: 'gw2027', label: '2027 new GW', source: 'transcript', basis: 'none', year: 2027, target: 50, tolerance: 0.10 },
@@ -126,10 +145,10 @@ const CALIBRATION_TARGETS = [
   { id: 'capex2028', label: '2028 total capex ($B)', source: 'transcript', basis: 'none', year: 2028, target: 3500, tolerance: 0.15 },
   { id: 'capexPerGw2026', label: '2026 $B/GW', source: 'epoch-ai', basis: 'itLoad', year: 2026, target: 38.2, tolerance: 0.10 },
   { id: 'capexPerGw2028', label: '2028 $B/GW', source: 'derived', basis: 'itLoad', year: 2028, target: 52, tolerance: 0.15 },
-  { id: 'price2028', label: '2028 compute price ($M/MW)', source: 'transcript', basis: 'none', year: 2028, target: 40, tolerance: 0.20 },
-  { id: 'cumCapex2029', label: 'Cumulative capex 24-29 ($B)', source: 'semianalysis-model', basis: 'none', year: 2029, target: 11000, tolerance: 0.20 },
-  { id: 'cumCredit2029', label: 'Cumulative credit 24-29 ($B)', source: 'semianalysis-model', basis: 'none', year: 2029, target: 5000, tolerance: 0.20 },
-  { id: 'labShare2028', label: 'Lab share of 2028 incremental', source: 'transcript', basis: 'none', year: 2028, target: 0.75, tolerance: 0.15 },
+  { id: 'price2028', label: '2028 compute price ($M/MW)', source: 'transcript', basis: 'none', year: 2028, target: 40, tolerance: 0.20, outOfSample: true },
+  { id: 'cumCapex2029', label: 'Cumulative capex, model 2026-29 vs source 2024-29 ($B)', source: 'semianalysis-model', basis: 'none', year: 2029, target: 11000, tolerance: 0.20, outOfSample: true },
+  { id: 'cumCredit2029', label: 'Cumulative credit, model 2026-29 vs source 2024-29 ($B)', source: 'semianalysis-model', basis: 'none', year: 2029, target: 5000, tolerance: 0.20, outOfSample: true },
+  { id: 'labShare2028', label: 'Lab share of 2028 incremental', source: 'transcript', basis: 'none', year: 2028, target: 0.75, tolerance: 0.15, outOfSample: true },
 ];
 
 const PRESETS = {

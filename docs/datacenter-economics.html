@@ -108,7 +108,6 @@
     text-transform: uppercase;
   }
 
-  .source-allin { background: rgba(245, 158, 11, 0.15); color: var(--accent-amber); }
   .source-dylan { background: rgba(74, 158, 255, 0.15); color: var(--accent-blue); }
 
   /* Controls */
@@ -289,6 +288,8 @@
   .cal-pass td { color:var(--accent-green) }
   .cal-fail td { color:var(--accent-red) }
   .cal-basis { opacity:0.6; font-size:0.65rem }
+  .cal-summary { font-size:0.78rem; opacity:0.85; margin:0 0 0.5rem }
+  .cal-oos { opacity:0.7; font-size:0.7rem }
   .ladder-rung { display:flex; align-items:center; gap:0.6rem; margin-bottom:0.4rem }
   .rung-label { width:11rem; font-size:0.72rem }
   .rung-track { flex:1; height:1.2rem; background:var(--surface2); border-radius:3px }
@@ -336,10 +337,10 @@
 <header>
   <h1>Datacenter Economics: A Year-by-Year Simulation</h1>
   <div class="subtitle">Supply ceilings, capital, and diffusion — simulated year by year, not fit to the source forecast</div>
-  <p class="framing-note">This model deliberately disagrees with its source transcript in two places — 2029 GW lands around 23 against a stated 95, and 2028 lab share lands around 52% against a stated 70&ndash;80% — because capital and diffusion ceilings bind before those targets are reached. Those deviations are findings, not errors; see Calibration vs. source below.</p>
+  <p class="framing-note">This model deliberately disagrees with its source in several places, most notably 2029 GW landing around 23 against a stated 95, and 2028 lab share landing around 52% against a stated 70&ndash;80% — because capital and diffusion ceilings bind before those targets are reached. Those two are findings, not errors; the full picture, including compute price and cumulative capex/credit, is in Calibration vs. source below, which states plainly how many targets — and how many of the out-of-sample validators — actually pass.</p>
+  <p class="framing-note seed-note">The 2029 figure is a single seed draw (12345), not a distribution. Across seeds 1&ndash;40 it ranges 22.7&ndash;76.2 GW (3.36×) while the 2026&ndash;28 path holds for 31 of 40 draws and none reach the stated 95 — the direction (a monetization-driven shortfall) is robust; the exact magnitude is seed-sensitive.</p>
   <div class="sources">
-    <span class="source-tag source-allin">All-In Pod · Brad Gerstner</span>
-    <span class="source-tag source-dylan">SemiAnalysis · Dylan Patel</span>
+    <span class="source-tag source-dylan">Dwarkesh Podcast · Dylan Patel (SemiAnalysis)</span>
   </div>
 </header>
 
@@ -501,8 +502,9 @@
 </div>
 
 <div class="footnote">
-  Data sourced from All-In Podcast E215 (Brad Gerstner, Chamath Palihapitiya, David Sacks) and
-  Dwarkesh Podcast × Dylan Patel (SemiAnalysis).<br>
+  Data sourced from the Dwarkesh Podcast × Dylan Patel (SemiAnalysis), 2026-08-26, plus researched
+  primary sources: ASML AR2025, Epoch AI, Lazard LCOE v19, JLL, Morgan Stanley, and SK hynix / Micron /
+  TSMC earnings disclosures. No figure in this model is sourced from the All-In Podcast.<br>
   All figures are estimates and projections. Not financial advice. Built for intuition-building.
 </div>
 

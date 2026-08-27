@@ -25,11 +25,19 @@ const RAILS = [
   // 300-400bps of gross margin (75.0% actual, guided to 74.0%, reportedly
   // bottoming 71-72%) while passing only ~15% of that through to server
   // prices with roughly a two-quarter lag. 1.0 asserted full, immediate
-  // pass-through -- the opposite of observed behavior. price2026's
-  // provenance (residual to Epoch's 21.2) is unaffected; only the
-  // elasticity, which was never sourced, changes.
+  // pass-through -- the opposite of observed behavior.
+  //
+  // Provenance fix (final review): the prior tag, 'researched:nvda-absorbs-
+  // 300-400bps-passes-15pct', described only the ELASTICITY's source and, in
+  // doing so, silently dropped price2026's own provenance (it's a residual --
+  // servers 21.2 minus every other perGw rail -- not an independently
+  // researched figure). It also overstated what the 15% figure IS: NVIDIA's
+  // ~15% pass-through is a PASS-THROUGH SHARE observed once, not a tightness
+  // ELASTICITY (a rate of repricing per unit of demand/ceiling tightness) --
+  // the two are different kinds of quantity. The tag below keeps both facts
+  // separate and correctly labelled.
   { id: 'vendorMargin', label: 'Vendor margin + rest of BOM', basis: 'perGw', parent: 'servers',
-    price2026: 14.5, elasticity: 0.35, lag: 0.5, provenance: 'researched:nvda-absorbs-300-400bps-passes-15pct' },
+    price2026: 14.5, elasticity: 0.35, lag: 0.5, provenance: 'derived:residual-to-epoch-21.2 | elasticity derived:nvda-passthrough-15pct' },
   { id: 'network', label: 'Networking, optics', basis: 'perGw', parent: null,
     price2026: 4.9, elasticity: 0.6, lag: 0.5, provenance: 'researched:epoch-ai-2026-05' },
   { id: 'dcElec', label: 'In-DC electrical, switchgear, UPS', basis: 'perGw', parent: null,
@@ -91,7 +99,14 @@ function sumPerGw(railPrice, ids) {
 
 const TIGHTNESS_MIN = 0.5;
 const TIGHTNESS_MAX = 3.0;
-const STEP_GAIN = 0.6;            // calibrated: 2yr at tightness 1.5 -> +60%, matching HBM's 2027 reset
+// NOT an independently sourced parameter -- a solve for one constant (this)
+// against one observation (HBM's disclosed 2027 reset shape), with three free
+// parameters available to fit it (this, MEMORY_RESET_INTERVAL, and the
+// backtest's hand-built tightness path). engine-backtest.test.js discloses
+// this honestly: the 2026 margin match only holds for STEP_GAIN in roughly
+// [0.55, 0.70] -- treat that range, not this single value, as what's actually
+// pinned down.
+const STEP_GAIN = 0.6;
 const MEMORY_RESET_INTERVAL = 2;  // HBM sits under multi-year LTAs
 
 function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }

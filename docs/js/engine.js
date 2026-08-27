@@ -263,6 +263,21 @@ function allocate(state, inputs, demand, supplyGw) {
   return { newGw, forSale, released, hoarderGot, labGain, hoardedStockAfter };
 }
 
+// I6 (final review, UNRESOLVED -- see final-fix-report.md): TERM_PREMIUM_SLOPE
+// is applied to cumulativeCredit / creditMarketDepth below, dividing a STOCK
+// ($B borrowed to date) by a FLOW ($B/yr of absorbable issuance, documented
+// and used as a flow everywhere else, e.g. creditCapacity below) -- the same
+// bug class the units guard exists to catch on the perGw/annuity side, with
+// no equivalent guard here. Two corrected forms were tried (scale
+// creditMarketDepth by years-elapsed-since-START_YEAR; scale it by a fixed
+// 5-year horizon) and both correctly make the term premium shrink over the
+// simulated horizon relative to this -- but both also relax the 2030 capital
+// ceiling enough to push the year-over-year newGw swing test
+// (engine-acceptance.test.js's "known-limitation ceiling") to 60.1-60.7 GW
+// against its 60 GW bound: an acceptance test regression. Per instruction,
+// stopped and left uncorrected rather than deciding unilaterally whether to
+// widen that test's ceiling or pick a different scale. Left as the original
+// (buggy) calculation below pending that decision.
 const TERM_PREMIUM_SLOPE = 0.02;   // calibrated so ~$5T cumulative credit lifts Meta 5.5% -> ~8%
 const RATE_MAX = 0.25;
 const CREDIT_RATION_SLOPE = 8;
@@ -296,7 +311,9 @@ const WTP_FRACTION_MAX = 0.6;
 
 // Annual capability growth driven by research-compute scaling. Compounds with lab GW
 // and inverts when inference dominates (inferenceShare rising suppresses research
-// opportunity). Calibrated to produce observed capability gains over a 5-year horizon.
+// opportunity). NOT calibrated against any observed capability-gain series -- no such
+// calibration exists anywhere in this repo or its ledger, and no test pins this value.
+// It is an unsourced fitted constant; treat it as a placeholder pending a real source.
 const CAPABILITY_GAIN = 0.015;
 
 // Regulatory jurisdiction-level stops (e.g., NY EO 62, Texas ERCOT audit) fire as a

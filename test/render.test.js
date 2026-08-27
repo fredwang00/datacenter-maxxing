@@ -55,6 +55,26 @@ test('calibration output declares each target units basis', () => {
   assert.ok(html.includes('itLoad') || html.includes('IT load'), 'basis must be visible');
 });
 
+// I5 fix (final review): the page header used to hardcode "disagrees ... in
+// two places" while 5 of 12 targets actually fail at DEFAULT_INPUTS, and all
+// four out-of-sample validators (spec:758) are among the failures. The panel
+// must state real counts, computed from the same rows it renders, not a
+// number that can go stale the moment sliders move.
+test('calibration panel states the real pass/fail count, not a hardcoded one', () => {
+  const { calibrationSummary } = require('../docs/js/render.js');
+  const rows = calibrationRows(run, CALIBRATION_TARGETS);
+  const s = calibrationSummary(rows);
+  assert.equal(s.total, 12);
+  assert.equal(s.passing, 7, 'at DEFAULT_INPUTS/seed 12345, 7 of 12 targets pass');
+  assert.equal(s.failing, 5, 'at DEFAULT_INPUTS/seed 12345, 5 of 12 targets fail');
+  assert.equal(s.validatorsTotal, 4, 'spec:758 designates exactly 4 out-of-sample validators');
+  assert.equal(s.validatorsPassing, 0, 'none of the 4 out-of-sample validators pass at DEFAULT_INPUTS');
+
+  const html = calibrationHtml(run, CALIBRATION_TARGETS);
+  assert.ok(html.includes('7 of 12'), 'the passing count must be visible in the rendered panel');
+  assert.ok(/0 of 4/.test(html), 'the out-of-sample validator count must be stated plainly, not hidden');
+});
+
 test('ladder top rung is flagged as non-scaling', () => {
   const rungs = ladderRungs(run[0]);
   const top = rungs[rungs.length - 1];

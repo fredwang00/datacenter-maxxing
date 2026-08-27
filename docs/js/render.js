@@ -154,10 +154,33 @@ function calibrationRows(run, targets, inputs = DEFAULT_INPUTS, seed) {
   });
 }
 
+// I5 fix (final review): the page header used to hardcode "disagrees with its
+// source in two places," naming only the 2029 GW and 2028 lab-share misses.
+// At DEFAULT_INPUTS, 5 of 12 targets actually fail (those two plus
+// price2028, cumCapex2029, cumCredit2029), and all four targets spec:758
+// designates as out-of-sample validators -- independent of the GW discussion
+// the model is fitted against -- are among the failures: 0 of 4 pass. A
+// hardcoded count goes stale the moment sliders move (as the "two places"
+// claim already had). Compute it here instead, from the same rows the table
+// renders, so the summary can never drift from what's actually displayed.
+function calibrationSummary(rows) {
+  const total = rows.length;
+  const passing = rows.filter(r => r.pass).length;
+  const validators = rows.filter(r => r.outOfSample);
+  const validatorsPassing = validators.filter(r => r.pass).length;
+  return { total, passing, failing: total - passing, validatorsTotal: validators.length, validatorsPassing };
+}
+
 function calibrationHtml(run, targets, inputs = DEFAULT_INPUTS, seed) {
-  const rows = calibrationRows(run, targets, inputs, seed).map(r => `
+  const rows = calibrationRows(run, targets, inputs, seed);
+  const s = calibrationSummary(rows);
+  const validatorNote = s.validatorsTotal > 0
+    ? ` Of the ${s.validatorsTotal} targets independent of the GW discussion (marked *) -- the strongest test, since the model was never fitted to them -- ${s.validatorsPassing} of ${s.validatorsTotal} pass.`
+    : '';
+  const summary = `<p class="cal-summary">${s.passing} of ${s.total} calibration targets pass at these inputs (${s.failing} miss).${validatorNote}</p>`;
+  const rowsHtml = rows.map(r => `
     <tr class="${r.pass ? 'cal-pass' : 'cal-fail'}">
-      <td>${r.label}</td>
+      <td>${r.label}${r.outOfSample ? ' <span class="cal-oos" title="out-of-sample validator: independent of the GW discussion the model is fitted against">*</span>' : ''}</td>
       <td class="cal-source">${r.source}</td>
       <td class="cal-basis" title="units basis">${r.basis}</td>
       <td>${Number.isFinite(r.target) ? r.target : '—'}</td>
@@ -165,9 +188,9 @@ function calibrationHtml(run, targets, inputs = DEFAULT_INPUTS, seed) {
       <td>${Number.isFinite(r.deviation) ? (r.deviation * 100).toFixed(1) + '%' : '—'}</td>
       <td class="cal-explain">${r.explanation ? r.explanation : '—'}</td>
     </tr>`).join('');
-  return `<table class="calibration-table"><thead><tr>
+  return summary + `<table class="calibration-table"><thead><tr>
     <th>Target</th><th>Source</th><th>Basis</th><th>Stated</th><th>Model</th><th>Δ</th><th>Explain</th>
-  </tr></thead><tbody>${rows}</tbody></table>`;
+  </tr></thead><tbody>${rowsHtml}</tbody></table>`;
 }
 
 // $M/MW rungs, in a fixed, meaningful order: cost to build/operate < what a
@@ -261,6 +284,6 @@ function marginMigrationHtml(run) {
   }).join('') + '</div>';
 }
 
-return { fmtB, fmtPct, fmtGw, stateTableHtml, calibrationRows, calibrationHtml,
+return { fmtB, fmtPct, fmtGw, stateTableHtml, calibrationRows, calibrationHtml, calibrationSummary,
          ladderRungs, ladderHtml, marginMigrationHtml };
 });
