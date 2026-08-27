@@ -78,6 +78,40 @@ function sumPerGw(railPrice, ids) {
   return total;
 }
 
+const TIGHTNESS_MIN = 0.5;
+const TIGHTNESS_MAX = 3.0;
+const STEP_GAIN = 0.6;            // calibrated: 2yr at tightness 1.5 -> +60%, matching HBM's 2027 reset
+const MEMORY_RESET_INTERVAL = 2;  // HBM sits under multi-year LTAs
+
+function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
+
+function railTightness(demandGw, ceilingGw) {
+  if (!(ceilingGw > 0)) return TIGHTNESS_MAX;
+  return clamp(demandGw / ceilingGw, TIGHTNESS_MIN, TIGHTNESS_MAX);
+}
+
+function repriceContinuous(price, elasticity, tightness) {
+  return price * (1 + elasticity * (tightness - 1));
+}
+
+function newStepState() { return { pressure: 0, yearsSinceReset: 0 }; }
+
+// Long-term-agreement repricing. Tightness accumulates as pressure and
+// discharges only at the contract reset. HBM was flat-to-down through 2026
+// while commodity DRAM moved +93-98% in one quarter, then steps +50-79% at
+// the 2027 reset. A continuous elasticity cannot express that shape.
+function repriceStep(price, tightness, stepState, resetInterval) {
+  stepState.pressure += (tightness - 1);
+  stepState.yearsSinceReset += 1;
+  if (stepState.yearsSinceReset >= resetInterval) {
+    const multiplier = 1 + Math.max(0, stepState.pressure) * STEP_GAIN;
+    stepState.pressure = 0;
+    stepState.yearsSinceReset = 0;
+    return price * multiplier;
+  }
+  return price;
+}
+
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { PUE, RAILS, railById, topLevelPerGwIds, topLevelAnnuityIds, initialRailPrice, sumPerGw };
+  module.exports = { PUE, RAILS, railById, topLevelPerGwIds, topLevelAnnuityIds, initialRailPrice, sumPerGw, clamp, railTightness, repriceContinuous, repriceStep, newStepState, TIGHTNESS_MIN, TIGHTNESS_MAX, STEP_GAIN, MEMORY_RESET_INTERVAL };
 }
