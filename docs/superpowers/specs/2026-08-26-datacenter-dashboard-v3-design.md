@@ -742,6 +742,13 @@ given Dylan-calibrated defaults with deliberately wide slider ranges.
 
 ## Acceptance Criteria
 
+> **Outcome, recorded 2026-08-27 after implementation.** Eight of the thirteen checks below hold.
+> Five do not, and **that is a deliberate, retained result rather than an unfinished requirement** —
+> the whole point of the calibration panel is to show where the model disagrees with its source.
+> The subsection *Results against these criteria* immediately after the table records what actually
+> shipped, including the fact that the four checks this section calls "independent" all fail. Read
+> the table below as the targets the model is measured against, not as a claim that it hits them.
+
 The engine at default settings must reproduce, within 10%:
 
 | Check | Target | Source |
@@ -762,8 +769,50 @@ The engine at default settings must reproduce, within 10%:
 | Lab share of 2028 incremental | 70–80% | transcript |
 | Compute price path | 13 → 25 → 40 | transcript |
 
-The last four are *independent* of the GW discussion, so hitting them validates the engine against
-numbers it was not fitted to.
+The last four are *independent* of the GW discussion, so hitting them would validate the engine
+against numbers it was not fitted to. **None of the four is hit** — see below.
+
+### Results against these criteria (2026-08-27, `DEFAULT_INPUTS`, seed 12345)
+
+| Check | Target | Actual | |
+|---|---|---|---|
+| 2026 new GW | 30 | 30.0 | ✅ |
+| 2027 new GW | 50 | 45.6 | ✅ −9% |
+| 2028 new GW | 70 | 64.9 | ✅ −7% |
+| **2029 new GW** | **90–100** | **22.7** | ❌ **−76%** |
+| 2028 cumulative world GW | ~200 | 190 | ✅ |
+| 2028 total capex | $3.5T | $3.22T | ✅ −8% |
+| 2026 capex per GW | $38.2B IT-basis | $38.1B | ✅ |
+| 2028 capex per GW | $52B | $49.6B | ✅ −5% |
+| EUV ceiling 2026/27/28 | ~50 / ~61 / ~75 | 49.7 / 60.9 / 75.4 | ✅ |
+| **Cumulative capex** | **$11T** | **$7.18T** | ❌ *out-of-sample* |
+| **Cumulative credit** | **$5T** | **$3.58T** | ❌ *out-of-sample* |
+| **Lab share of 2028 incremental** | **70–80%** | **52%** | ❌ *out-of-sample* |
+| **Compute price path** | **13 → 25 → 40** | **13 → 16 → 25** | ❌ *out-of-sample* |
+
+**One mechanism explains four of the five misses.** The diffusion ceiling caps `labRevPerMw` at what
+the addressable economy can absorb. That pulls lab willingness-to-pay below the clearing price, lab
+demand collapses, and 2029 becomes **demand-limited** — so GW, cumulative capex, cumulative credit
+and the price path all come in low together. Lab share falls for the same reason: labs cannot outbid
+when they cannot monetize.
+
+**Capital is not the cause, despite an earlier draft of this spec and several code comments saying
+so.** The 2029 capital ceiling is 60.3 GW against demand of 22.7; raising `creditMarketDepth` to
+10,000,000 moves the year by 0.4 GW of a 72 GW gap. Capital binds in exactly one year, 2030, which
+is not a target. That mislabel survived three fix rounds because `bindingConstraint` was `argmin`
+over ceilings and never asked whether demand had fallen below all of them; see `limitingFactor()`.
+
+**On the out-of-sample four.** Their unanimous failure is the single most important thing in this
+table. It is consistent with the same mechanism, which is reassuring for internal coherence — but it
+is also exactly what over-constraining the demand side would look like, and this model cannot
+distinguish those two readings from inside itself. Treat the direction (a monetization-driven
+shortfall) as the finding and the magnitude as unresolved. Note also that the 2029 figure is a single
+seeded draw: across seeds 1–40 it spans 22.7–76.2 GW, though *no* seed reaches 90.
+
+**Window mismatch, resolved by relabelling.** The two cumulative targets are stated by their source
+for 2024–29; the model accumulates 2026–29 only. Two of six source years are structurally absent, so
+the comparison understates by construction. The labels now say so rather than comparing silently; the
+target values were not moved.
 
 Additional required behaviours:
 

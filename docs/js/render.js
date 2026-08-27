@@ -1,8 +1,16 @@
 // Panel renderers. These consume the engine's year-state array and produce
-// HTML strings. No arithmetic beyond formatting and presentation ratios --
-// the one deliberate exception is the calibration panel's use of
-// impliedCreditDepthFor (see explainGwMiss below), which is the engine's own
-// designated diagnostic for exactly this purpose, not renderer-invented math.
+// HTML strings. No arithmetic beyond formatting and presentation ratios.
+//
+// Two deliberate exceptions, both calls into the engine rather than
+// renderer-invented math:
+//   - impliedCreditDepthFor (see explainGwMiss) -- the engine's own designated
+//     diagnostic for explaining a missed GW target.
+//   - hoarderRelease (see ladderRungs) -- reused to read off the engine's real
+//     release fraction, added by the final review's I2 fix so the scarcity rung
+//     stops being an unsourced render-layer multiplier. It is called with a
+//     synthetic { hoardedStock: 1 } to extract the fraction; that is a working
+//     but implicit contract, and the cleaner shape would be for the engine to
+//     emit the fraction itself.
 
 (function (root, factory) {
   const rails = (typeof require !== 'undefined') ? require('./rails.js') : root;

@@ -48,7 +48,11 @@ const DEFAULT_INPUTS = {
   // exactly, so clearPrice clamps to [floorCost, labWtp] and price can never
   // move — the whole market mechanic goes inert.
   wtpFraction: 0.50,
-  wtpFractionGrowth: 0.18,        // how fast that fraction rises — the key slider
+  // How fast willingness-to-pay rises. Called "the key slider" in an earlier
+  // draft; that is no longer true. captureRate (below) drives the model's
+  // headline result, because it sets the diffusion ceiling that ends up
+  // capping labRevPerMw and collapsing lab demand in 2029.
+  wtpFractionGrowth: 0.18,
   // Task 9 calibration: 12 -> 16. Under the corrected stepRails ceiling
   // default (see engine.js), 12 left 2026 demand at ~26 GW against a 30 GW
   // pipeline ceiling -- pure slack, no scarcity, and no repricing signal for
@@ -61,6 +65,11 @@ const DEFAULT_INPUTS = {
   // demand/supply gap the corrected rail ceilings produce; see engine.js's
   // PIPELINE_BASE/GROWTH comment for why that gap can't simply be widened
   // further without starving the 2029 GW target through the capital ceiling.
+  // (That was the governing mechanism at the time of this tuning. As of the
+  // final review's C1 fix, 2029 is demand-limited, not capital-limited -- a
+  // wider gap would still raise capexPerGw and lower the capital ceiling, so
+  // the reasoning holds as a counterfactual, but do not read this as saying
+  // capital governs 2029 today. It does not.)
   priceElasticity: 1.0,
   damping: 1.0,
   floorCost: 11.0,                // $M/MW — "anyone can make money at $10-15"
@@ -81,11 +90,16 @@ const DEFAULT_INPUTS = {
   //   creditMarketDepth 2500: a large share of US investment-grade issuance
   //     plus private credit and ABS specifically absorbable by AI
   //     infrastructure. Already generous, not a hard ceiling on all credit.
-  // With capital repricing removed, `capital` DOES bind here (see the fix
-  // round 2 report) and pulls the GW path below the 30/50/70/95 target --
-  // left as-is rather than re-inflated to force the path green. That result
-  // is the finding: see the report for the creditMarketDepth Dylan's stated
-  // GW path would actually require.
+  // Left at plausible values rather than re-inflated to force the GW path
+  // green. The path does fall short of 30/50/70/95, and that shortfall is the
+  // finding -- but note WHAT causes it, because this comment used to get it
+  // wrong: as of the final review's C1 fix, 2029 is DEMAND-limited, not
+  // capital-limited. The capital ceiling that year is 60.3 GW against demand
+  // of 22.7, and raising creditMarketDepth to 10,000,000 moves the year by
+  // 0.4 GW of a 72 GW gap. Capital binds in exactly one year, 2030 -- which is
+  // not a calibration target. The real cause is the diffusion ceiling capping
+  // what labs can monetize, which collapses their willingness to pay below the
+  // clearing price. See limitingFactor() in engine.js.
   creditMarketDepth: 2500,        // $B/yr of absorbable AI credit issuance
   ecosystemCashFlow: 1000,        // $B/yr fundable from operations
   reinvestRate: 0.9,

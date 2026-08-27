@@ -7,6 +7,12 @@
 
 const RAILS = [
   // ---- perGw: these sum to capexPerGw ----
+  // NOTE: `servers` is a PARENT rail, so its own elasticity and lag are INERT.
+  // stepRails reprices each child and then overwrites railPrice.servers with the
+  // sum of its children (engine.js), so whatever elasticity is applied here is
+  // discarded on the same tick. The values are kept only so every rail has a
+  // uniform shape; read the children (logic / memory / package / vendorMargin)
+  // for the repricing behaviour that actually drives this rail's price.
   { id: 'servers', label: 'Accelerator + server BOM', basis: 'perGw', parent: null,
     price2026: 21.2, elasticity: 1.0, lag: 0.5, provenance: 'researched:epoch-ai-2026-05' },
   { id: 'logic', label: 'TSMC N3/N5 wafers', basis: 'perGw', parent: 'servers',
@@ -61,10 +67,6 @@ function topLevelPerGwIds() {
   return RAILS.filter(r => r.parent === null && r.basis === 'perGw').map(r => r.id);
 }
 
-function topLevelAnnuityIds() {
-  return RAILS.filter(r => r.parent === null && r.basis === 'annuity').map(r => r.id);
-}
-
 function initialRailPrice() {
   const out = {};
   for (const r of RAILS) out[r.id] = r.price2026;
@@ -110,9 +112,16 @@ function railTightness(demandGw, ceilingGw) {
   return clamp(demandGw / ceilingGw, TIGHTNESS_MIN, TIGHTNESS_MAX);
 }
 
-// A rail can shed value fast when slack, but never invert. Without this floor an
-// elasticity above 2.0 (reachable via the slider) drives price negative, which
-// propagates to a negative capexPerGw and a negative capital ceiling.
+// A rail can shed value fast when slack, but never invert. With tightness
+// floored at 0.5, the worst multiplier is 1 - 0.5 x elasticity, so any
+// elasticity above 2.0 drives price negative -- which would propagate to a
+// negative capexPerGw and a negative capital ceiling, silently.
+//
+// No elasticity is reachable from the shipped UI (the 11 sliders are all
+// DEFAULT_INPUTS keys, not rail fields), so this is defence against a future
+// editor or a programmatic caller, not against a live control. The highest
+// elasticity in RAILS today is 1.3, giving a floor multiplier of 0.35 -- the
+// guard has never actually engaged in a default run.
 const REPRICE_MULTIPLIER_MIN = 0.25;
 
 function repriceContinuous(price, elasticity, tightness) {
@@ -138,7 +147,7 @@ function repriceStep(price, tightness, stepState, resetInterval) {
   return price;
 }
 
-const _railsApi = { RAILS, railById, topLevelPerGwIds, topLevelAnnuityIds, initialRailPrice, sumPerGw, clamp, railTightness, repriceContinuous, repriceStep, newStepState, TIGHTNESS_MIN, TIGHTNESS_MAX, STEP_GAIN, MEMORY_RESET_INTERVAL, REPRICE_MULTIPLIER_MIN };
+const _railsApi = { RAILS, railById, topLevelPerGwIds, initialRailPrice, sumPerGw, clamp, railTightness, repriceContinuous, repriceStep, newStepState, TIGHTNESS_MIN, TIGHTNESS_MAX, STEP_GAIN, MEMORY_RESET_INTERVAL, REPRICE_MULTIPLIER_MIN };
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = _railsApi;
 } else if (typeof self !== 'undefined') {
