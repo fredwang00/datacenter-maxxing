@@ -6,11 +6,29 @@ const { DEFAULT_INPUTS } = require('../docs/js/presets.js');
 test('CONSERVATION: released hoard is inventory, never new capacity', () => {
   const s = initialState(DEFAULT_INPUTS);
   s.hoardedStock = 10;
+  s.computePrice = 45;
   const d = computeDemand(s, DEFAULT_INPUTS, 2026);
   const r = allocate(s, DEFAULT_INPUTS, d, 30);
   assert.ok(r.newGw <= 30 + 1e-9, 'newGw may never exceed the physical supply ceiling');
-  const expected = s.hoardedStock - r.released + DEFAULT_INPUTS.hoarderBuildGw;
-  assert.ok(Math.abs(r.hoardedStockAfter - expected) < 1e-9, 'hoard must balance: in - out + built');
+  const expected = s.hoardedStock - r.released + r.hoarderGot;
+  assert.ok(Math.abs(r.hoardedStockAfter - expected) < 1e-9, 'hoard must balance: in - out + got');
+  assert.ok(Math.abs((r.forSale + r.hoarderGot) - (r.newGw + r.released)) < 1e-9, 'forSale + hoarderGot must equal newGw + released');
+});
+
+test('newGw is pinned by supply ceiling regardless of hoard stock', () => {
+  const s1 = initialState(DEFAULT_INPUTS);
+  s1.hoardedStock = 0;
+  s1.computePrice = 45;
+  const d1 = computeDemand(s1, DEFAULT_INPUTS, 2026);
+  const r1 = allocate(s1, DEFAULT_INPUTS, d1, 15);
+
+  const s2 = initialState(DEFAULT_INPUTS);
+  s2.hoardedStock = 10;
+  s2.computePrice = 45;
+  const d2 = computeDemand(s2, DEFAULT_INPUTS, 2026);
+  const r2 = allocate(s2, DEFAULT_INPUTS, d2, 15);
+
+  assert.ok(Math.abs(r1.newGw - r2.newGw) < 1e-9, 'identical supply/demand should yield identical newGw regardless of hoard stock');
 });
 
 test('hoarders release more when price is high relative to internal use', () => {

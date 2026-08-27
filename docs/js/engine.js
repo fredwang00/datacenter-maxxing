@@ -170,10 +170,15 @@ function hoarderRelease(state, price) {
 function allocate(state, inputs, demand, supplyGw) {
   const newGw = Math.min(demand.total, supplyGw);
   const released = hoarderRelease(state, state.computePrice);
-  const forSale = newGw + released;
+  // The hoarder's own build goes to ITS inventory, not to market. Under supply
+  // constraint newGw < demand.total, so ration proportionally rather than
+  // subtracting hoarderBuildGw outright (which could exceed newGw).
+  const hoarderShare = demand.total > 0 ? inputs.hoarderBuildGw / demand.total : 0;
+  const hoarderGot = newGw * hoarderShare;
+  const forSale = (newGw - hoarderGot) + released;
   const labGain = forSale * labShare(demand.labWtp, state.computePrice);
-  const hoardedStockAfter = state.hoardedStock - released + inputs.hoarderBuildGw;
-  return { newGw, forSale, released, labGain, hoardedStockAfter };
+  const hoardedStockAfter = state.hoardedStock - released + hoarderGot;
+  return { newGw, forSale, released, hoarderGot, labGain, hoardedStockAfter };
 }
 
 return {
