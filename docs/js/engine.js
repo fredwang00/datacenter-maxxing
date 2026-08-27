@@ -107,12 +107,38 @@ function computeCeilings(state, inputs, year) {
   };
 }
 
+// Argmin over the supply ceilings. Answers "which ceiling is lowest", which is
+// NOT the same question as "what actually limited this year" -- see
+// limitingFactor below.
 function bindingConstraint(ceilings) {
   let best = null, bestVal = Infinity;
   for (const [k, v] of Object.entries(ceilings)) {
     if (v < bestVal) { bestVal = v; best = k; }
   }
   return best;
+}
+
+// What actually held newGw down this year. newGw = min(demand, ...ceilings), so
+// there are two cases and the tool must not confuse them:
+//
+//   - DEMAND-LIMITED: demand sits at or below EVERY ceiling. Nothing on the
+//     supply side bound; buyers simply did not want that much capacity at the
+//     clearing price. Relaxing any supply rail (or capital) changes nothing.
+//   - ceiling-limited: some rail capped the build, and the lowest one is it.
+//
+// C1 fix (final review): the year state previously emitted `bindingConstraint`
+// alone, which is argmin over ceilings and never asks about demand. That made
+// a demand-limited year report a supply rail as the cause -- 2029 at defaults
+// printed "capital" while demand was 22.7 against a 60.3 capital ceiling and
+// an 87.0 memory ceiling, and raising creditMarketDepth 2500 -> 10,000,000
+// moved the year by 0.44 GW of a 72 GW miss. The real cause is a monetization
+// collapse (the diffusion ceiling cuts labRevPerMw below the clearing price,
+// priceDamp falls to its tail, lab demand evaporates), not capital.
+function limitingFactor(demandGw, ceilings) {
+  const values = Object.values(ceilings);
+  const minCeiling = values.length > 0 ? Math.min(...values) : Infinity;
+  if (demandGw <= minCeiling) return 'demand';
+  return bindingConstraint(ceilings);
 }
 
 // PHYSICAL scarcity (fabs, tools, power plants) is a different phenomenon
@@ -389,9 +415,9 @@ function simulate(inputs, seed) {
     // basis for rail REPRICING -- see physicalCeiling()/stepRails().
     const supplyGw = Math.min(...Object.values(ceilings));
     const physCeilGw = physicalCeiling(ceilings);
-    const binding = bindingConstraint(ceilings);
 
     const demand = computeDemand(state, inputs, year);
+    const limiter = limitingFactor(demand.total, ceilings);
     const nextPrice = clearPrice(state, inputs, demand.total, supplyGw);
     // Fix round 3 (Task 11): allocate() runs BEFORE state.computePrice is
     // updated below, so it uses the PRIOR year's price (this year's opening,
@@ -432,7 +458,10 @@ function simulate(inputs, seed) {
     state.wtpFraction = mon.wtpFraction;
 
     out.push({
-      year, binding, supplyGw, clamped,
+      // `limiter` (not the old `binding`) is what actually held newGw down:
+      // 'demand' when buyers wanted less than every ceiling allowed,
+      // otherwise the lowest ceiling. See limitingFactor().
+      year, limiter, supplyGw, clamped,
       demand: demand.total,
       demandBreakdown: { ...demand },
       ceilings: { ...ceilings },
@@ -483,11 +512,18 @@ function simulate(inputs, seed) {
 // is unreachable / needs $D/yr of credit depth."
 //
 // Raising creditMarketDepth only ever relaxes the capital ceiling, so
-// realized newGw is monotonic non-decreasing in it -- UNTIL a PHYSICAL rail
-// (euv, memory, package, power) becomes the binding constraint instead, past
-// which more credit does nothing (see physicalCeiling()). When that physical
-// ceiling itself sits below targetGw, NO credit depth can reach the target.
-// That case is the interesting one and must be representable directly,
+// realized newGw is monotonic non-decreasing in it -- UNTIL something else
+// becomes the limiter instead, past which more credit does nothing. That
+// something is either a PHYSICAL rail (euv, memory, package, power; see
+// physicalCeiling()) or DEMAND itself: if buyers want less than the target at
+// the clearing price, no amount of credit conjures the build. Both cases are
+// reported through `limitingRail`, which is the year's `limiter` and can be
+// 'demand' (C1 fix: it previously could only ever name a supply rail, so a
+// demand-limited miss was attributed to whichever ceiling happened to be the
+// numeric argmin).
+//
+// When the reachable ceiling sits below targetGw, NO credit depth reaches the
+// target. That case is the interesting one and must be representable directly,
 // rather than as Infinity or a crash: this returns
 // `{ reachable: false, limitingRail, maxGw }` instead.
 function impliedCreditDepthFor(targetGw, year, inputs, seed) {
@@ -505,7 +541,7 @@ function impliedCreditDepthFor(targetGw, year, inputs, seed) {
 
   const atUnlimitedCredit = yearStateAt(PRACTICALLY_UNLIMITED_CREDIT);
   if (atUnlimitedCredit.newGw < targetGw) {
-    return { reachable: false, limitingRail: atUnlimitedCredit.binding, maxGw: atUnlimitedCredit.newGw };
+    return { reachable: false, limitingRail: atUnlimitedCredit.limiter, maxGw: atUnlimitedCredit.newGw };
   }
 
   // Bisect for the minimal creditMarketDepth that clears targetGw. 60
@@ -516,7 +552,7 @@ function impliedCreditDepthFor(targetGw, year, inputs, seed) {
     const mid = (lo + hi) / 2;
     if (yearStateAt(mid).newGw >= targetGw) hi = mid; else lo = mid;
   }
-  return { reachable: true, creditMarketDepth: hi, limitingRail: yearStateAt(hi).binding };
+  return { reachable: true, creditMarketDepth: hi, limitingRail: yearStateAt(hi).limiter };
 }
 
 // Historical validation: 2023 memory was loose and earning nothing on HBM;
@@ -556,7 +592,8 @@ function backtest() {
 
 return {
   START_YEAR, END_YEAR, POWER_MODES, PIPELINE_BASE, PIPELINE_GROWTH,
-  initialState, seedPipelines, computeCeilings, bindingConstraint, physicalCeiling, pipelineCapacity,
+  initialState, seedPipelines, computeCeilings, bindingConstraint, limitingFactor,
+  physicalCeiling, pipelineCapacity,
   arbitrageShelf, priceDamp, LAB_TAIL_SHARE, LAB_TAIL_DECAY, computeDemand, clearPrice,
   labShare, hoarderRelease, allocate, LAB_SHARE_SATURATION_RANGE,
   termPremium, creditCapacity, stepCapital,

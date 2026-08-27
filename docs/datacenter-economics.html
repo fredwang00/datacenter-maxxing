@@ -285,7 +285,7 @@
   .calibration-table th:first-child, .calibration-table td:first-child { text-align:left }
   .row-clamped { background:rgba(255,80,80,0.08) }
   .warn { color:var(--accent-red); font-size:0.65rem }
-  .binding { padding:0.1rem 0.4rem; border-radius:3px; background:var(--accent-amber); color:#000 }
+  .limiter { padding:0.1rem 0.4rem; border-radius:3px; background:var(--accent-amber); color:#000 }
   .cal-pass td { color:var(--accent-green) }
   .cal-fail td { color:var(--accent-red) }
   .cal-basis { opacity:0.6; font-size:0.65rem }
@@ -559,9 +559,11 @@ function update() {
   document.getElementById('pipeline').innerHTML = stateTableHtml([firstYear]);
   document.getElementById('state-table').innerHTML = stateTableHtml(run);
   document.getElementById('margin-migration').innerHTML = marginMigrationHtml(run);
-  // calibrationHtml's third argument lets explainGwMiss compute the implied
-  // credit depth for a missed GW target against these exact inputs.
-  document.getElementById('calibration').innerHTML = calibrationHtml(run, CALIBRATION_TARGETS, inputs);
+  // calibrationHtml's third and fourth arguments let explainGwMiss compute the
+  // implied credit depth for a missed GW target against these exact inputs AND
+  // the same seed the displayed run used -- otherwise the explanation describes
+  // a different draw than the numbers beside it.
+  document.getElementById('calibration').innerHTML = calibrationHtml(run, CALIBRATION_TARGETS, inputs, SEED);
 }
 
 document.querySelectorAll('input[type="range"][data-input]').forEach(el => {

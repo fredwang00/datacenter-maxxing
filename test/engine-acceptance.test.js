@@ -36,24 +36,61 @@ test('ACCEPTANCE: 2026-2028 GW path tracks 30/50/70 within 10%', () => {
 // EXPLAINED by a real constraint taking over, not by some unrelated bug
 // quietly capping growth.
 //
-// Fix round 2 (Task 11): a corrected captureRate (0.004, was 8-20x actual AI
-// revenue at 0.03) exposed a SECOND, independent reason 2029 misses: labs
-// cannot monetize enough to justify the compute price once the diffusion
-// ceiling binds, on top of the capital constraint. Accept either as the
-// explanation -- 'memory' (a physical-rail binding) is no longer one of them,
-// since fixing priceDamp's hard cutoff moved the credit-unconstrained
-// physical ceiling itself down to ~23 GW (see the impliedCreditDepthFor test
-// below), so a 'memory' binding at defaults would no longer be a distinct,
-// independently-verified reason from the diffusion ceiling that produced it.
-test('2029 misses the stated path, and the binding constraint explains why', () => {
-  const target = CALIBRATION_TARGETS.find(t => t.id === 'gw2029');
-  const y = byYear[2029];
+// C1/C1b fix (final review): the previous version accepted
+// `y.binding === 'capital' || y.diffusionBound === true`, and the capital
+// clause could not discriminate. `binding` was argmin over ceilings, so it read
+// 'capital' whenever the capital ceiling happened to be the numeric lowest --
+// regardless of whether capital did anything. Setting captureRate 0.004 -> 0.04
+// (10x wrong; kills the diffusion mechanism in all five years) still passed.
+//
+// The miss at defaults is MONETIZATION-constrained, not capital-constrained.
+// The causal chain is: the diffusion ceiling caps lab revenue (diffusionBound)
+// -> labRevPerMw 27.1 falls below the clearing price -> labWtp 16.26 < price
+// 25.16 -> priceDamp drops to its 0.0155 tail -> lab demand 80.8 -> 2.69 ->
+// total demand 22.7, BELOW every ceiling (euv 94.3 / memory 87.0 / package
+// 118.7 / power 111.7 / capital 60.3), so `limiter` is 'demand'.
+//
+// Both links are asserted. Requiring diffusionBound alone would not prove the
+// collapse reached demand; requiring limiter 'demand' alone would not identify
+// WHY demand collapsed. Capital is verifiably not the cause: raising
+// creditMarketDepth 2500 -> 10,000,000 moves 2029 by 0.44 GW of a 72 GW miss.
+function assertGwMissIsExplained(y, target, label) {
   const dev = Math.abs(y.newGw - target.target) / target.target;
   const hitsTarget = dev <= target.tolerance;
-  const explainedMiss = y.binding === 'capital' || y.diffusionBound === true;
+  const explainedMiss = y.diffusionBound === true && y.limiter === 'demand';
   assert.ok(hitsTarget || explainedMiss,
-    `2029: got ${y.newGw.toFixed(1)} GW vs ${target.target} (${(dev * 100).toFixed(0)}% off), bound on '${y.binding}', ` +
-    `diffusionBound=${y.diffusionBound} -- a miss must be explained by capital or a bound diffusion ceiling, not an unrelated cap`);
+    `${label}: got ${y.newGw.toFixed(1)} GW vs ${target.target} (${(dev * 100).toFixed(0)}% off), ` +
+    `limiter '${y.limiter}', diffusionBound=${y.diffusionBound} -- a miss must be explained by the ` +
+    `diffusion ceiling collapsing DEMAND below every supply ceiling, not by whichever ceiling is lowest`);
+}
+
+test('2029 misses the stated path, and a monetization-driven demand collapse explains why', () => {
+  const target = CALIBRATION_TARGETS.find(t => t.id === 'gw2029');
+  assertGwMissIsExplained(byYear[2029], target, '2029');
+
+  // A test that accepts ANY miss is worthless -- the whole point of C1b. Stub
+  // each link of the chain in turn and confirm the SAME assertion then fails.
+  assert.throws(() => assertGwMissIsExplained({ ...byYear[2029], diffusionBound: false }, target, '2029 (stubbed)'),
+    /must be explained by the diffusion ceiling/,
+    'stubbing diffusionBound=false must make the assertion fail');
+  assert.throws(() => assertGwMissIsExplained({ ...byYear[2029], limiter: 'capital' }, target, '2029 (stubbed)'),
+    /must be explained by the diffusion ceiling/,
+    'a capital limiter must NOT be accepted as the explanation -- that was the C1 false cause');
+});
+
+// The mechanism, measured directly rather than inferred: capital is not what
+// holds 2029 down. If this ever stops being true the 2029 framing above needs
+// rewriting, so pin it.
+test('2029 is demand-limited, not capital-limited: unlimited credit barely moves it', () => {
+  const y = byYear[2029];
+  const flooded = simulate({ ...DEFAULT_INPUTS, creditMarketDepth: 10000000 }, 12345)
+    .find(r => r.year === 2029);
+  const moved = flooded.newGw - y.newGw;
+  assert.ok(moved < 1.0,
+    `raising creditMarketDepth to 1e7 moved 2029 by ${moved.toFixed(2)} GW -- if credit genuinely ` +
+    `mattered this much, 2029 is not demand-limited and the framing is wrong`);
+  assert.ok(y.demand < Math.min(...Object.values(y.ceilings)),
+    `2029 demand ${y.demand.toFixed(1)} must sit below EVERY ceiling for 'demand' to be the limiter`);
 });
 
 // impliedCreditDepthFor is the model's answer to "how deep would credit
@@ -61,16 +98,25 @@ test('2029 misses the stated path, and the binding constraint explains why', () 
 // calibration panel should be able to render this directly rather than a
 // hand-written number in a report.
 //
-// Fix round 2 (Task 11): priceDamp's smooth tail (replacing a hard cutoff at
-// labWtp) changed 2029's credit-unconstrained trajectory -- labs now taper
-// off instead of dropping out entirely, which changes the WHOLE path leading
-// into 2029, not just the 2029 clearing. The physical (memory) ceiling this
-// produces dropped from ~86.3 GW to ~23.1 GW.
-test('impliedCreditDepthFor: 2029/95 GW is unreachable at ANY credit depth -- memory binds first', () => {
-  const result = impliedCreditDepthFor(95, 2029, DEFAULT_INPUTS);
+// C1 fix (final review): this previously asserted `limitingRail === 'memory'`,
+// which was the false cause -- 2029's memory ceiling is 87.0 GW, nearly 4x the
+// 22.7 GW cap being explained. With the demand case added, the diagnostic
+// correctly reports 'demand'. Nothing about the model changed; the label was
+// wrong.
+//
+// I8 fix: the seed is now passed explicitly. Omitting it silently used
+// makeRng(1) (maxGw 23.14) while the page and every other test here use 12345
+// (maxGw 22.70).
+test('impliedCreditDepthFor: 2029/95 GW is unreachable at ANY credit depth -- demand runs out first', () => {
+  const result = impliedCreditDepthFor(95, 2029, DEFAULT_INPUTS, 12345);
   assert.equal(result.reachable, false);
-  assert.equal(result.limitingRail, 'memory');
-  assert.ok(Math.abs(result.maxGw - 23.1) < 0.5, `maxGw ${result.maxGw}`);
+  assert.equal(result.limitingRail, 'demand');
+  assert.ok(Math.abs(result.maxGw - 22.7) < 0.5, `maxGw ${result.maxGw}`);
+  // The claim that makes 'demand' the right answer rather than 'memory': the
+  // cap sits far below the memory ceiling it used to be blamed on.
+  assert.ok(result.maxGw < byYear[2029].ceilings.memory / 3,
+    `maxGw ${result.maxGw.toFixed(1)} vs memory ceiling ${byYear[2029].ceilings.memory.toFixed(1)} -- ` +
+    `if these were close, blaming memory would at least be arguable`);
 });
 
 // Fix round 2 (Task 11): the old "80 GW needs MORE than default credit"
@@ -82,8 +128,10 @@ test('impliedCreditDepthFor: 2029/95 GW is unreachable at ANY credit depth -- me
 // needs no MORE credit than the default -- it demonstrates reachability
 // without needing the credit market to deepen at all.
 test('impliedCreditDepthFor: a target inside the physical ceiling IS reachable via credit alone', () => {
-  const result = impliedCreditDepthFor(20, 2029, DEFAULT_INPUTS);
+  const result = impliedCreditDepthFor(20, 2029, DEFAULT_INPUTS, 12345);
   assert.equal(result.reachable, true);
+  assert.equal(result.limitingRail, 'demand',
+    '20 GW clears because demand (22.7) exceeds it, not because any rail relaxed');
   assert.ok(result.creditMarketDepth >= 0 && Number.isFinite(result.creditMarketDepth));
   assert.ok(result.creditMarketDepth <= DEFAULT_INPUTS.creditMarketDepth,
     `20 GW should already be inside what DEFAULT_INPUTS credit depth (${DEFAULT_INPUTS.creditMarketDepth}) achieves, needed ${result.creditMarketDepth}`);
@@ -202,9 +250,9 @@ test('ACCEPTANCE: physical tightness does not climb monotonically across all fiv
     `demand/physicalCeiling gap rose every year (${gaps.map(g => g.toFixed(2)).join(', ')}) -- the bullwhip stabilizer never caught up`);
 });
 
-test('EUV is never the binding constraint at defaults', () => {
+test('EUV is never the limiting constraint at defaults', () => {
   for (const y of run) {
-    assert.notEqual(y.binding, 'euv', `${y.year} bound on EUV — contradicts ASML's disclosed plan`);
+    assert.notEqual(y.limiter, 'euv', `${y.year} bound on EUV — contradicts ASML's disclosed plan`);
   }
 });
 

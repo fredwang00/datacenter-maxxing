@@ -39,7 +39,7 @@ const STATE_TABLE_COLUMNS = [
   { label: 'Pkg' },
   { label: 'Power' },
   { label: 'Capital' },
-  { label: 'Binding' },
+  { label: 'Limiter', title: 'What actually held new build down: "demand" when buyers wanted less than every ceiling allowed, otherwise the lowest ceiling.' },
   { label: 'Alloc Price', title: 'The price this year\'s allocation and lab share actually used -- last year\'s ending price (the initial price in 2026).' },
   { label: 'Price', title: 'This year\'s newly cleared price. Becomes next year\'s Alloc Price.' },
   { label: '$B/GW' },
@@ -67,7 +67,7 @@ function stateTableHtml(run) {
     const cells = [
       y.year, fmtGw(y.demand), fmtGw(ceilings.euv), fmtGw(ceilings.memory),
       fmtGw(ceilings.package), fmtGw(ceilings.power), fmtGw(ceilings.capital),
-      y.binding ? `<span class="binding binding-${y.binding}">${y.binding}</span>` : '—',
+      y.limiter ? `<span class="limiter limiter-${y.limiter}">${y.limiter}</span>` : '—',
       Number.isFinite(y.clearingPrice) ? '$' + y.clearingPrice.toFixed(0) + 'M' : '—',
       Number.isFinite(y.computePrice) ? '$' + y.computePrice.toFixed(0) + 'M' : '—',
       Number.isFinite(y.capexPerGw) ? y.capexPerGw.toFixed(1) : '—',
@@ -104,39 +104,58 @@ function targetActual(run, target) {
 // shape impliedCreditDepthFor solves for. Matches targetActual's cases above.
 const NEW_GW_TARGET_IDS = new Set(['gw2026', 'gw2027', 'gw2028', 'gw2029']);
 
-// The calibration panel's most important row: WHY a GW target misses, not
-// just that it does (the 2029/95 target is a deliberate miss -- capital
-// binds at 59.4 GW). impliedCreditDepthFor is the engine's own designated
-// diagnostic for this (see its header comment in engine.js): it reports
-// either the credit depth that would clear the target, or -- when a
-// PHYSICAL rail caps the outcome regardless of credit -- which rail and how
-// far it caps out. Wrapped defensively: an explanatory aside must never take
-// down the calibration panel.
-function explainGwMiss(target, inputs) {
+// The calibration panel's most important row: WHY a GW target misses, not just
+// that it does. impliedCreditDepthFor is the engine's own designated diagnostic
+// for this (see its header comment in engine.js): it reports either the credit
+// depth that would clear the target, or -- when something caps the outcome
+// regardless of credit -- what and how far.
+//
+// C1 fix (final review): that "what" can be DEMAND, and the phrasing must then
+// name a demand collapse rather than a supply rail. At DEFAULT_INPUTS the
+// 2029/95 miss is demand-limited: the diffusion ceiling cuts lab revenue below
+// the clearing price, so labs stop buying long before any rail or the capital
+// ceiling binds. The old wording read "memory-bound at 23.1 GW" in a year
+// whose memory ceiling was 87.0 GW, printed three columns away in the same
+// table.
+//
+// Wrapped defensively: an explanatory aside must never take down the
+// calibration panel.
+function limiterPhrase(limitingRail) {
+  return limitingRail === 'demand'
+    ? 'demand-limited: labs cannot monetize at the clearing price'
+    : `${limitingRail}-bound`;
+}
+
+function explainGwMiss(target, inputs, seed) {
   try {
-    const result = impliedCreditDepthFor(target.target, target.year, inputs);
+    const result = impliedCreditDepthFor(target.target, target.year, inputs, seed);
     if (result.reachable) {
-      return `reachable at ${fmtB(result.creditMarketDepth)}/yr credit depth (then ${result.limitingRail}-bound)`;
+      return `reachable at ${fmtB(result.creditMarketDepth)}/yr credit depth (then ${limiterPhrase(result.limitingRail)})`;
     }
-    return `unreachable — ${result.limitingRail}-bound at ${fmtGw(result.maxGw)} GW regardless of credit depth`;
+    return `unreachable — ${limiterPhrase(result.limitingRail)} at ${fmtGw(result.maxGw)} GW regardless of credit depth`;
   } catch (e) {
     return null;
   }
 }
 
-function calibrationRows(run, targets, inputs = DEFAULT_INPUTS) {
+// `seed` must be the SAME seed the displayed `run` was simulated with. I8 fix
+// (final review): explainGwMiss called impliedCreditDepthFor with no seed at
+// all, so it silently fell back to makeRng(1) while the page renders seed
+// 12345 -- the panel printed a "Model" column from one draw beside an
+// explanation computed from a different one.
+function calibrationRows(run, targets, inputs = DEFAULT_INPUTS, seed) {
   return targets.map(t => {
     const actual = targetActual(run, t);
     const deviation = Number.isFinite(actual) && t.target !== 0
       ? (actual - t.target) / t.target : NaN;
     const pass = Number.isFinite(deviation) && Math.abs(deviation) <= t.tolerance;
-    const explanation = (!pass && NEW_GW_TARGET_IDS.has(t.id)) ? explainGwMiss(t, inputs) : null;
+    const explanation = (!pass && NEW_GW_TARGET_IDS.has(t.id)) ? explainGwMiss(t, inputs, seed) : null;
     return { ...t, actual, deviation, pass, explanation };
   });
 }
 
-function calibrationHtml(run, targets, inputs = DEFAULT_INPUTS) {
-  const rows = calibrationRows(run, targets, inputs).map(r => `
+function calibrationHtml(run, targets, inputs = DEFAULT_INPUTS, seed) {
+  const rows = calibrationRows(run, targets, inputs, seed).map(r => `
     <tr class="${r.pass ? 'cal-pass' : 'cal-fail'}">
       <td>${r.label}</td>
       <td class="cal-source">${r.source}</td>

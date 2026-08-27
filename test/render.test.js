@@ -12,9 +12,27 @@ test('state table has one row per simulated year', () => {
   for (const y of run) assert.ok(html.includes(String(y.year)), `missing ${y.year}`);
 });
 
-test('state table shows the binding constraint per year', () => {
+test('state table shows the limiter per year', () => {
   const html = stateTableHtml(run);
-  for (const y of run) assert.ok(html.toLowerCase().includes(y.binding.toLowerCase()));
+  for (const y of run) assert.ok(html.toLowerCase().includes(y.limiter.toLowerCase()));
+});
+
+// C1 fix (final review): the state table's job here is to NOT name a supply
+// rail in a year that was demand-limited. 2029 at defaults is the case that
+// went wrong -- it printed "capital" beside a demand of 22.7 and a capital
+// ceiling of 60.3.
+test('a demand-limited year is labelled demand, not whichever ceiling is lowest', () => {
+  const y = run.find(r => r.limiter === 'demand');
+  assert.ok(y, 'DEFAULT_INPUTS/seed 12345 should have at least one demand-limited year (2029)');
+  const lowestCeiling = Object.entries(y.ceilings)
+    .reduce((a, b) => (b[1] < a[1] ? b : a))[0];
+  assert.notEqual(y.limiter, lowestCeiling,
+    `${y.year}: the lowest ceiling is '${lowestCeiling}' but demand ran out first -- ` +
+    `naming the ceiling would restate the C1 false cause`);
+  const row = stateTableHtml([y]);
+  assert.ok(row.includes('>demand<'), 'the demand case must be rendered by name');
+  assert.ok(!new RegExp(`limiter-${lowestCeiling}`).test(row),
+    `${y.year} must not be styled as ${lowestCeiling}-limited`);
 });
 
 test('clamped years are visibly marked, not hidden', () => {
@@ -98,37 +116,62 @@ test('state table surfaces hoarderGot per year', () => {
 // -- the calibration panel must explain why via impliedCreditDepthFor, not
 // just flag red.
 //
-// Numbers updated for fix rounds 1-3 (Task 11): a corrected captureRate
-// (0.004, was 8-20x actual AI revenue) plus priceDamp's smooth tail (fixing a
-// bang-bang oscillation) together moved 2029's actual output to ~22.7 GW and
-// its credit-unconstrained physical ceiling (memory) down from ~86.3 to
-// ~23.1 GW. See test/engine-acceptance.test.js for the full history.
-test('calibration panel explains an unreachable GW miss using impliedCreditDepthFor', () => {
-  const rows = calibrationRows(run, CALIBRATION_TARGETS);
+// C1 fix (final review): this test USED to require the explanation to say
+// "memory" and "23.1" -- i.e. it pinned the false cause in place. 2029's memory
+// ceiling is 87.0 GW; the 22.7 GW cap has nothing to do with memory. The
+// explanation must now name the demand collapse, and must NOT name a supply
+// rail.
+//
+// I8 fix: the seed is threaded through so the explanation describes the SAME
+// draw as the `actual` column beside it (seed 12345 -> 22.7; the old unseeded
+// call used makeRng(1) -> 23.1).
+test('calibration panel explains an unreachable GW miss as demand-limited, naming no supply rail', () => {
+  const rows = calibrationRows(run, CALIBRATION_TARGETS, DEFAULT_INPUTS, 12345);
   const miss = rows.find(r => r.id === 'gw2029');
   assert.equal(miss.pass, false, 'the 2029 GW target is a deliberate miss at DEFAULT_INPUTS');
   assert.ok(typeof miss.explanation === 'string' && miss.explanation.length > 0,
     'a missed GW target must carry an explanation');
-  assert.ok(miss.explanation.toLowerCase().includes('memory'), 'must name the limiting rail');
-  assert.ok(miss.explanation.includes('23.1'), 'must surface the physical ceiling GW (confirmed: 23.14)');
+  assert.ok(miss.explanation.includes('demand-limited'), 'must name the demand collapse');
+  assert.ok(/monetize/.test(miss.explanation), 'must say WHY demand collapsed');
+  for (const rail of ['memory', 'euv', 'package', 'power', 'capital']) {
+    assert.ok(!miss.explanation.includes(rail),
+      `must not blame '${rail}': 2029 sits below every supply ceiling`);
+  }
+  // The figure must match the displayed run, not a different draw.
+  assert.ok(miss.explanation.includes('22.7'),
+    `must surface the same GW the panel displays (${miss.actual.toFixed(1)}), got: ${miss.explanation}`);
+  assert.ok(Math.abs(miss.actual - 22.7) < 0.05, `actual ${miss.actual}`);
 
-  const html = calibrationHtml(run, CALIBRATION_TARGETS);
+  const html = calibrationHtml(run, CALIBRATION_TARGETS, DEFAULT_INPUTS, 12345);
   assert.ok(html.includes('unreachable'));
-  assert.ok(html.toLowerCase().includes('memory'));
+  assert.ok(html.includes('demand-limited'));
 });
 
 test('calibration explanation reports required credit depth when a miss is reachable', () => {
-  // Confirmed: impliedCreditDepthFor(20, 2029, DEFAULT_INPUTS) ->
-  // { reachable: true, creditMarketDepth: ~0, limitingRail: 'capital' }.
-  // 20 GW sits comfortably inside the new ~23.1 GW physical ceiling, and
-  // DEFAULT_INPUTS' own ecosystemCashFlow alone already funds it -- no
-  // credit-market depth needed at all.
+  // Confirmed at seed 12345: impliedCreditDepthFor(20, 2029, DEFAULT_INPUTS,
+  // 12345) -> { reachable: true, creditMarketDepth: ~0, limitingRail: 'demand' }.
+  // 20 GW sits just inside 2029's 22.7 GW of demand, and DEFAULT_INPUTS'
+  // ecosystemCashFlow alone already funds it -- no credit-market depth needed.
   const reachableTarget = { id: 'gw2029', label: '2029 new GW (test)', source: 'test',
     basis: 'none', year: 2029, target: 20, tolerance: 0.01 };
-  const rows = calibrationRows(run, [reachableTarget]);
+  const rows = calibrationRows(run, [reachableTarget], DEFAULT_INPUTS, 12345);
   assert.equal(rows[0].pass, false);
-  assert.ok(rows[0].explanation.includes('capital'), 'confirmed limitingRail for the 20GW/2029 case');
   assert.ok(rows[0].explanation.includes('reachable at'), 'must state the reachable-branch framing');
+  assert.ok(rows[0].explanation.includes('demand-limited'),
+    'confirmed limitingRail for the 20GW/2029 case: even at zero credit depth, demand is what runs out');
+});
+
+// I8 fix (final review): a seed mismatch between the panel's numbers and its
+// explanation is invisible unless something pins it. makeRng(1) yields 23.14 GW
+// for the 2029 case where 12345 yields 22.70, so an unseeded call is detectable.
+test('the miss explanation is computed from the seed it was given, not a default draw', () => {
+  const at12345 = calibrationRows(run, CALIBRATION_TARGETS, DEFAULT_INPUTS, 12345)
+    .find(r => r.id === 'gw2029').explanation;
+  const at1 = calibrationRows(run, CALIBRATION_TARGETS, DEFAULT_INPUTS, 1)
+    .find(r => r.id === 'gw2029').explanation;
+  assert.notEqual(at12345, at1, 'the seed must actually reach impliedCreditDepthFor');
+  assert.ok(at12345.includes('22.7'), at12345);
+  assert.ok(at1.includes('23.1'), at1);
 });
 
 test('a passing GW target carries no miss explanation', () => {
