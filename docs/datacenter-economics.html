@@ -305,6 +305,78 @@
   .spark-bar { flex:1; background:var(--accent-cyan); border-radius:1px 1px 0 0; min-height:2px }
   .margin-delta { font-family:'JetBrains Mono',monospace; font-size:0.7rem; margin-top:0.3rem }
 
+  /* Year selector, shared by the per-year panels below (bottleneck, per-GW
+     economics, matrix auto-select) */
+  .year-tabs { display:flex; gap:0.5rem; flex-wrap:wrap }
+  .year-tab { background:var(--surface2); border:1px solid var(--border); color:var(--text-dim);
+    padding:0.4rem 0.9rem; border-radius:6px; font-family:'JetBrains Mono',monospace; font-size:0.75rem;
+    cursor:pointer; transition:all 0.2s }
+  .year-tab:hover { border-color:var(--accent-blue); color:var(--text) }
+  .year-tab.active { background:var(--glow-blue); border-color:var(--accent-blue); color:var(--accent-blue); font-weight:600 }
+
+  /* Bottleneck Severity bar */
+  .bottleneck-bar { display:flex; gap:2px; border-radius:8px; overflow:hidden; height:40px }
+  .bottleneck-segment { display:flex; align-items:center; justify-content:center;
+    font-family:'JetBrains Mono',monospace; font-size:0.6rem; letter-spacing:0.5px; color:white;
+    transition:flex 0.5s ease; overflow:hidden; white-space:nowrap; padding:0 0.5rem }
+  .seg-euv { background:var(--accent-purple) }
+  .seg-memory { background:var(--accent-blue) }
+  .seg-package { background:var(--accent-cyan) }
+  .seg-power { background:var(--accent-green) }
+  .bottleneck-segment.loose { opacity:0.4 }
+
+  /* Stock Sensitivity Matrix */
+  .matrix-tabs { display:flex; gap:0.5rem; margin-bottom:1rem; flex-wrap:wrap }
+  .matrix-tab { background:var(--surface2); border:1px solid var(--border); color:var(--text-dim);
+    padding:0.5rem 1rem; border-radius:6px; font-family:'JetBrains Mono',monospace; font-size:0.75rem;
+    cursor:pointer; transition:all 0.2s }
+  .matrix-tab:hover { border-color:var(--accent-blue); color:var(--text) }
+  .matrix-tab.active { background:var(--glow-blue); border-color:var(--accent-blue); color:var(--accent-blue); font-weight:600 }
+  .matrix-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:1rem }
+  .matrix-card { background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:1.25rem }
+  .matrix-card h4 { font-family:'JetBrains Mono',monospace; font-size:0.75rem; text-transform:uppercase;
+    letter-spacing:1px; margin-bottom:0.75rem }
+  .matrix-card.winners h4 { color:var(--accent-green) }
+  .matrix-card.losers h4 { color:var(--accent-red) }
+  .matrix-card.symptoms h4 { color:var(--accent-amber) }
+  .matrix-list { list-style:none; font-size:0.85rem }
+  .matrix-list li { margin-bottom:0.4rem; padding-left:1rem; position:relative }
+  .matrix-list li::before { content:'\2192'; position:absolute; left:0; color:var(--text-dim);
+    font-family:'JetBrains Mono',monospace }
+  .matrix-expansion-note { font-size:0.78rem; opacity:0.85; margin:0 0 1rem }
+  @media (max-width: 900px) { .matrix-grid { grid-template-columns:1fr } }
+
+  /* Anthropic vs OpenAI comparison */
+  .comparison { display:grid; grid-template-columns:1fr 1fr; gap:1.5rem }
+  .company-card { background:var(--surface2); border:1px solid var(--border); border-radius:10px; padding:1.5rem }
+  .company-name { font-family:'JetBrains Mono',monospace; font-size:1rem; font-weight:600; margin-bottom:0.5rem;
+    display:flex; align-items:center; gap:0.5rem }
+  .company-dot { width:8px; height:8px; border-radius:50% }
+  .anthropic-dot { background:var(--accent-amber); box-shadow:0 0 8px rgba(245,158,11,0.4) }
+  .openai-dot { background:var(--accent-green); box-shadow:0 0 8px rgba(52,211,153,0.4) }
+  .lab-share-note { font-size:0.68rem; color:var(--text-muted); margin-bottom:0.5rem }
+  .bar-chart { margin-top:0.5rem }
+  .bar-row { display:flex; align-items:center; gap:0.75rem; margin-bottom:0.5rem }
+  .bar-label { font-size:0.68rem; color:var(--text-dim); width:70px; text-align:right; flex-shrink:0 }
+  .bar-track { flex:1; height:16px; background:var(--surface3); border-radius:3px; overflow:hidden }
+  .bar-fill { height:100%; border-radius:3px; transition:width 0.5s ease; display:flex; align-items:center;
+    padding-left:0.4rem; font-family:'JetBrains Mono',monospace; font-size:0.58rem; color:white; font-weight:500 }
+  .bar-anthropic { background:linear-gradient(90deg,#f59e0b,#f97316) }
+  .bar-openai { background:linear-gradient(90deg,#34d399,#10b981) }
+  .company-strategy { margin-top:0.9rem; font-size:0.75rem; color:var(--text-dim); line-height:1.6 }
+  .company-trajectory { margin-top:0.5rem; font-size:0.65rem; color:var(--text-muted); line-height:1.4 }
+  @media (max-width: 900px) { .comparison { grid-template-columns:1fr } }
+
+  /* Per-GW economics */
+  .pergw-note { font-size:0.72rem; color:var(--text-dim); margin:0.5rem 0; line-height:1.5 }
+
+  /* Diffusion (Jevons) reality check */
+  .diffusion-note { font-size:0.78rem; opacity:0.85; margin:0 0 0.75rem; line-height:1.5 }
+  .diffusion-table { width:100%; border-collapse:collapse; font-size:0.75rem; font-family:'JetBrains Mono',monospace }
+  .diffusion-table th, .diffusion-table td { padding:0.35rem 0.5rem; text-align:right; border-bottom:1px solid var(--border) }
+  .diffusion-table th:first-child, .diffusion-table td:first-child { text-align:left }
+  .dbound-row { background:rgba(245,158,11,0.08) }
+
   /* Footer note */
   .footnote {
     margin-top: 3rem;
@@ -501,6 +573,42 @@
   </section>
 </div>
 
+<!-- Shared year selector for the per-year panels below (bottleneck severity,
+     per-GW economics, and the matrix's auto-selected tab all read this year's
+     state). Buttons are static across re-renders -- only their `active` class
+     and the panels below change -- so the click listener is wired once. -->
+<div class="controls-section">
+  <h2>Select year</h2>
+  <div class="year-tabs" id="year-select"></div>
+</div>
+
+<div class="outputs">
+  <section class="output-panel">
+    <h3>Bottleneck severity (selected year)</h3>
+    <div id="bottleneck-panel"></div>
+  </section>
+
+  <section class="output-panel">
+    <h3>Per-gigawatt economics (selected year)</h3>
+    <div id="pergw-economics"></div>
+  </section>
+
+  <section class="output-panel span-2">
+    <h3>Diffusion (Jevons) reality check</h3>
+    <div id="diffusion-panel"></div>
+  </section>
+
+  <section class="output-panel span-2">
+    <h3>Public markets: stock sensitivity matrix</h3>
+    <div id="matrix-panel"></div>
+  </section>
+
+  <section class="output-panel span-2">
+    <h3>Lab compute position: Anthropic vs. OpenAI</h3>
+    <div id="lab-comparison"></div>
+  </section>
+</div>
+
 <div class="footnote">
   Data sourced from the Dwarkesh Podcast × Dylan Patel (SemiAnalysis), 2026-08-26, plus researched
   primary sources: ASML AR2025, Epoch AI, Lazard LCOE v19, JLL, Morgan Stanley, and SK hynix / Micron /
@@ -513,6 +621,7 @@
 <script src="js/rails.js"></script>
 <script src="js/presets.js"></script>
 <script src="js/engine.js"></script>
+<script src="js/market-scenarios.js"></script>
 <script src="js/render.js"></script>
 <script>
 const SEED = 12345; // fixed so the page is reproducible across reloads
@@ -520,6 +629,21 @@ const SEED = 12345; // fixed so the page is reproducible across reloads
 // Inputs are always DEFAULT_INPUTS plus whatever the controls have changed.
 // DEFAULT_INPUTS is Object.freeze()d -- never write into it directly.
 let overrides = {};
+
+// Shared year selector for the per-year panels (bottleneck, per-GW economics,
+// matrix auto-select). Defaults to the first simulated year, same convention
+// as the existing "Current-year snapshot" panel above.
+let selectedYear = 2026;
+
+// Manual matrix-tab override. null means "follow auto-selection from the
+// selected year's limiter" (see matrixTabForLimiter); once the user clicks a
+// tab, their choice sticks until reload -- it must not silently revert the
+// next time update() runs (e.g. after a slider move or year change).
+let manualMatrixTab = null;
+
+function yearState(run, year) {
+  return run.find(r => r.year === year) || run[0];
+}
 
 function currentInputs() {
   return { ...DEFAULT_INPUTS, ...overrides };
@@ -566,7 +690,49 @@ function update() {
   // the same seed the displayed run used -- otherwise the explanation describes
   // a different draw than the numbers beside it.
   document.getElementById('calibration').innerHTML = calibrationHtml(run, CALIBRATION_TARGETS, inputs, SEED);
+
+  const y = yearState(run, selectedYear);
+  document.getElementById('bottleneck-panel').innerHTML = bottleneckHtml(y);
+  document.getElementById('pergw-economics').innerHTML = perGwEconomicsHtml(y);
+  document.getElementById('diffusion-panel').innerHTML = diffusionHtml(run);
+  document.getElementById('lab-comparison').innerHTML = labComparisonHtml(run);
+
+  // Auto-select the matrix tab from the selected year's limiter, unless the
+  // user has manually clicked a tab -- that choice overrides auto-selection
+  // until reload (see manualMatrixTab above).
+  const autoTab = matrixTabForLimiter(y.limiter);
+  const activeTab = manualMatrixTab || autoTab;
+  document.getElementById('matrix-panel').innerHTML = matrixHtml(run, MARKET_SCENARIOS, activeTab);
 }
+
+// Matrix tabs are regenerated on every update(), so the click listener is
+// delegated to the (stable) container rather than attached to the buttons
+// themselves. Uses addEventListener (v2 used inline "on-click" handlers), so
+// matrixHtml stays a pure string producer with no DOM wiring baked into it.
+document.getElementById('matrix-panel').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-tab]');
+  if (!btn) return;
+  manualMatrixTab = btn.dataset.tab;
+  update();
+});
+
+// Year-select buttons are static across re-renders, so build and wire them
+// once, from engine.js's own START_YEAR/END_YEAR rather than a hardcoded list.
+(function buildYearSelect() {
+  const container = document.getElementById('year-select');
+  const years = [];
+  for (let y = START_YEAR; y <= END_YEAR; y++) years.push(y);
+  container.innerHTML = years.map(y =>
+    `<button type="button" class="year-tab${y === selectedYear ? ' active' : ''}" data-year="${y}">${y}</button>`
+  ).join('');
+  container.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-year]');
+    if (!btn) return;
+    selectedYear = Number(btn.dataset.year);
+    container.querySelectorAll('.year-tab').forEach(b => b.classList.toggle('active', Number(b.dataset.year) === selectedYear));
+    update();
+  });
+})();
 
 document.querySelectorAll('input[type="range"][data-input]').forEach(el => {
   el.addEventListener('input', () => {
