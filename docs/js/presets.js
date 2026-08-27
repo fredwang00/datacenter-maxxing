@@ -40,7 +40,7 @@ const DEFAULT_INPUTS = {
   powerMode: 'grid',              // grid | ccgt | peaker | nuclear
   // demand
   labGrowthRate: 3.0,             // labs triple per year
-  wtpFraction: 0.26,              // labs pay ~$13M/MW while generating ~$50M
+  wtpFraction: 0.50,              // labs pay ~$13M/MW while generating ~$50M
   wtpFractionGrowth: 0.18,        // how fast that fraction rises — the key slider
   hyperscalerDemandGw: 12,
   hoarderBuildGw: 4,

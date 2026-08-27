@@ -10,6 +10,7 @@
 })(typeof self !== 'undefined' ? self : this, function (rails, presets) {
 
 const { RAILS, railById, initialRailPrice, sumPerGw, newStepState, railTightness } = rails;
+const { clamp } = rails;
 const { euvCeilingGw, euvToolsPerGwFromWafers } = presets;
 
 const START_YEAR = 2026;
@@ -99,8 +100,54 @@ function bindingConstraint(ceilings) {
   return best;
 }
 
+const ARB_SHELF_MAX_GW = 12;
+const ARB_SHELF_SHARPNESS = 6;
+// Exponent on the headroom term in priceDamp. Bounded by the calibration
+// tests: priceDamp(10, 50) must stay above 0.9 and priceDamp(49, 50) must
+// stay below 0.3, which pins this to roughly (0.31, 0.47). 0.4 sits in the
+// middle of that range.
+const PRICE_DAMP_EXPONENT = 0.4;
+
+// The "download Kimi weights and put it on OpenRouter" crowd. Near-infinitely
+// elastic below the floor, gone above it. Does not compete for scarce compute
+// -- it sets the floor.
+function arbitrageShelf(price, floorCost) {
+  const excess = (price - floorCost) / floorCost;
+  return ARB_SHELF_MAX_GW * Math.exp(-ARB_SHELF_SHARPNESS * Math.max(0, excess));
+}
+
+// Labs buy freely well below their willingness-to-pay and stop at it.
+function priceDamp(price, wtp) {
+  if (!(wtp > 0)) return 0;
+  if (price >= wtp) return 0;
+  const headroom = 1 - price / wtp;
+  return Math.pow(headroom, PRICE_DAMP_EXPONENT);
+}
+
+function computeDemand(state, inputs, year) {
+  const labWtp = state.labRevPerMw * state.wtpFraction;
+  const labDemand = state.labGw * (inputs.labGrowthRate - 1) * priceDamp(state.computePrice, labWtp);
+  const hyperscaler = inputs.hyperscalerDemandGw;
+  const hoarder = inputs.hoarderBuildGw;
+  const arbitrage = arbitrageShelf(state.computePrice, inputs.floorCost);
+  return {
+    labDemand, hyperscaler, hoarder, arbitrage, labWtp,
+    total: labDemand + hyperscaler + hoarder + arbitrage,
+  };
+}
+
+function clearPrice(state, inputs, demandGw, supplyGw) {
+  const labWtp = state.labRevPerMw * state.wtpFraction;
+  const ceiling = Math.max(labWtp, inputs.floorCost);
+  const gap = supplyGw > 0 ? demandGw / supplyGw : 3;
+  const raw = state.computePrice * Math.pow(gap, inputs.priceElasticity);
+  const target = clamp(raw, inputs.floorCost, ceiling);
+  return state.computePrice + inputs.damping * (target - state.computePrice);
+}
+
 return {
   START_YEAR, END_YEAR, POWER_MODES, PIPELINE_BASE, PIPELINE_GROWTH,
   initialState, seedPipelines, computeCeilings, bindingConstraint, pipelineCapacity,
+  arbitrageShelf, priceDamp, computeDemand, clearPrice,
 };
 });
