@@ -1,9 +1,16 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
 const { stateTableHtml, calibrationRows, calibrationHtml, ladderRungs, ladderHtml,
-        marginMigrationHtml, fmtPct } = require('../docs/js/render.js');
+        marginMigrationHtml, fmtPct,
+        matrixTabForLimiter, railMarginExpansions, matrixHtml,
+        labSplit, labComparisonHtml,
+        fabCapexPerGwYr, perGwEconomics, perGwEconomicsHtml,
+        bottleneckSegments, bottleneckHtml,
+        diffusionRows, diffusionHtml } = require('../docs/js/render.js');
 const { simulate } = require('../docs/js/engine.js');
 const { DEFAULT_INPUTS, CALIBRATION_TARGETS } = require('../docs/js/presets.js');
+const { RAILS } = require('../docs/js/rails.js');
+const { MARKET_SCENARIOS } = require('../docs/js/market-scenarios.js');
 
 const run = simulate(DEFAULT_INPUTS, 12345);
 
@@ -286,4 +293,225 @@ test('a passing GW target carries no miss explanation', () => {
   const hit = rows.find(r => r.id === 'gw2026');
   assert.equal(hit.pass, true);
   assert.equal(hit.explanation, null);
+});
+
+// ---------------------------------------------------------------------------
+// v2 port: Stock Sensitivity Matrix
+// ---------------------------------------------------------------------------
+
+test('matrix auto-selects the documented tab for each limiter', () => {
+  assert.equal(matrixTabForLimiter('euv'), 'euv');
+  assert.equal(matrixTabForLimiter('memory'), 'hbm');
+  assert.equal(matrixTabForLimiter('package'), 'hbm');
+  assert.equal(matrixTabForLimiter('power'), 'power');
+  assert.equal(matrixTabForLimiter('capital'), 'demand');
+  assert.equal(matrixTabForLimiter('demand'), 'demand');
+});
+
+test('a different limiter selects a different matrix tab', () => {
+  assert.notEqual(matrixTabForLimiter('euv'), matrixTabForLimiter('power'));
+  assert.notEqual(matrixTabForLimiter('memory'), matrixTabForLimiter('power'));
+  assert.notEqual(matrixTabForLimiter('capital'), matrixTabForLimiter('euv'));
+});
+
+test('matrixHtml marks the active tab and renders that scenario\'s verbatim content', () => {
+  const euvHtml = matrixHtml(run, MARKET_SCENARIOS, 'euv');
+  assert.ok(/class="matrix-tab active" data-tab="euv"/.test(euvHtml), 'euv tab must be marked active');
+  assert.ok(euvHtml.includes('TSMC (Pricing power, margin expansion)'), 'euv scenario content must render verbatim');
+  assert.ok(!euvHtml.includes('SK Hynix'), 'must not render another tab\'s content');
+
+  const powerHtml = matrixHtml(run, MARKET_SCENARIOS, 'power');
+  assert.ok(/class="matrix-tab active" data-tab="power"/.test(powerHtml));
+  assert.ok(powerHtml.includes('Independent Power Producers (CEG, VST)'));
+  assert.notEqual(euvHtml, powerHtml, 'a different activeTab must change the rendered panel');
+});
+
+test('MARKET_SCENARIOS editorial content matches the extracted v2 source verbatim', () => {
+  assert.deepEqual(Object.keys(MARKET_SCENARIOS).sort(), ['demand', 'euv', 'hbm', 'power'].sort());
+  assert.equal(MARKET_SCENARIOS.demand.label, 'Monetization Tight (Jevons Failure)');
+  assert.deepEqual(MARKET_SCENARIOS.hbm.winners,
+    ['SK Hynix (First-mover advantage)', 'Micron (Margin catch-up)', 'Amkor (Advanced packaging)']);
+});
+
+test('railMarginExpansions ranks by last-year railPrice / rail.price2026, highest first', () => {
+  const fakeLastYear = { year: 2030, railPrice: Object.fromEntries(RAILS.map(r => [r.id, r.price2026])) };
+  const shellRail = RAILS.find(r => r.id === 'shell');
+  fakeLastYear.railPrice.shell = shellRail.price2026 * 5; // force shell to expand most
+  const ranked = railMarginExpansions([fakeLastYear]);
+  assert.equal(ranked[0].id, 'shell', 'the rail with the largest last-year/price2026 ratio must rank first');
+  assert.ok(ranked[0].ratio > ranked[1].ratio);
+});
+
+test('matrix panel annotates the rail with the largest margin expansion across the run', () => {
+  const html = matrixHtml(run, MARKET_SCENARIOS, 'euv');
+  const top = railMarginExpansions(run)[0];
+  assert.ok(html.includes(top.label), 'the top-expansion rail must be named in the panel');
+  assert.ok(html.includes(top.ratio.toFixed(2) + 'x'), 'the expansion ratio must be shown');
+});
+
+// ---------------------------------------------------------------------------
+// v2 port: Anthropic vs OpenAI
+// ---------------------------------------------------------------------------
+
+test('the Anthropic/OpenAI split sums to labGw for every simulated year', () => {
+  const split = labSplit(run);
+  assert.equal(split.length, run.length);
+  for (const s of split) {
+    assert.ok(Math.abs((s.anthropicGw + s.openaiGw) - s.labGw) < 1e-9,
+      `${s.year}: anthropicGw + openaiGw (${s.anthropicGw + s.openaiGw}) must equal labGw (${s.labGw})`);
+  }
+});
+
+test('each share is applied to the right company, not swapped', () => {
+  const split = labSplit(run);
+  for (const s of split) {
+    assert.ok(Math.abs(s.anthropicGw / s.labGw - 0.45) < 1e-9, `${s.year}: Anthropic must get the 45% share`);
+    assert.ok(Math.abs(s.openaiGw / s.labGw - 0.55) < 1e-9, `${s.year}: OpenAI must get the 55% share`);
+    assert.ok(s.openaiGw > s.anthropicGw, `${s.year}: OpenAI's larger share must yield the larger GW figure`);
+  }
+});
+
+test('labGw trajectory matches v3\'s combined stock across 2026-2030', () => {
+  const split = labSplit(run);
+  const expected = [20.0, 54.5, 87.1, 87.1, 108.9];
+  split.forEach((s, i) => assert.ok(Math.abs(s.labGw - expected[i]) < 0.1, `${s.year}: labGw ${s.labGw} != ~${expected[i]}`));
+});
+
+test('lab comparison panel shows the full trajectory, not just one year, and keeps v2\'s editorial text verbatim', () => {
+  const html = labComparisonHtml(run);
+  for (const y of run) assert.ok(html.includes(`${y.year} GW`), `missing ${y.year} in the GW trajectory`);
+  assert.ok(html.includes('Anthropic') && html.includes('OpenAI'));
+  assert.ok(html.includes('$19B ARR') && html.includes('$25B ARR'));
+  assert.ok(html.includes('Locked 5-year deals with CoreWeave, Oracle, SoftBank'), 'OpenAI strategy text must be verbatim');
+  assert.ok(html.includes('Best model but compute-constrained'), 'Anthropic strategy text must be verbatim');
+  assert.ok(html.includes('~10x annual growth') && html.includes('~3x annual growth'), 'ARR trajectory notes must be verbatim');
+  assert.ok(/editorial/i.test(html), 'the split must be labelled editorial, not model output');
+});
+
+// ---------------------------------------------------------------------------
+// v2 port: Per-Gigawatt Economics -- the amortization result
+// ---------------------------------------------------------------------------
+
+test('amortization ratio is ~1.57% at DEFAULT_INPUTS 2026, per the spec\'s stated finding', () => {
+  const info = perGwEconomics(run[0]);
+  assert.ok(Math.abs(info.fabCapex - 6.0) < 0.01, `fab capex ${info.fabCapex} should be ~$6B`);
+  assert.ok(Math.abs(info.amortizedFabPerGw - 0.6) < 0.01, `amortized fab capex ${info.amortizedFabPerGw} should be ~$0.6B/GW`);
+  assert.ok(Math.abs(info.allInPerGw - 38.1) < 0.1, `all-in capexPerGw ${info.allInPerGw} should be ~$38.1B/GW`);
+  assert.ok(Math.abs(info.ratio - 0.0157) < 0.001, `ratio ${info.ratio} should be ~1.57%`);
+});
+
+test('the amortization ratio is computed from annuity rails, not hardcoded', () => {
+  const before = perGwEconomics(run[0]).ratio;
+  const otherWfe = RAILS.find(r => r.id === 'otherWfe');
+  const original = otherWfe.price2026;
+  otherWfe.price2026 = original + 10; // materially bump fab capex
+  try {
+    const after = perGwEconomics(run[0]).ratio;
+    assert.notEqual(after, before, 'changing an annuity rail\'s price2026 must move the ratio -- a hardcoded 6.0 would not react');
+    assert.ok(after > before, 'raising fab capex must raise the ratio');
+  } finally {
+    otherWfe.price2026 = original; // RAILS is shared module state -- always restore
+  }
+});
+
+test('the amortization ratio excludes optics (a child of euv, not a top-level fab-capex component)', () => {
+  const before = perGwEconomics(run[0]).ratio;
+  const optics = RAILS.find(r => r.id === 'optics');
+  const original = optics.price2026;
+  optics.price2026 = original + 1000; // an enormous bump; must have zero effect if correctly excluded
+  try {
+    const after = perGwEconomics(run[0]).ratio;
+    assert.equal(after, before, 'optics is a child of euv and must not be double-counted into fab capex');
+  } finally {
+    optics.price2026 = original;
+  }
+});
+
+test('per-GW economics panel labels both bases explicitly so the ratio cannot be mistaken for a sum', () => {
+  const html = perGwEconomicsHtml(run[0]);
+  assert.ok(/annuity basis/i.test(html), 'the annuity basis must be labelled');
+  assert.ok(/perGw basis|per GW basis/i.test(html), 'the perGw basis must be labelled');
+  assert.ok(html.includes('1.57%') || html.includes('1.6%') || /ratio/i.test(html), 'the ratio must be surfaced');
+  assert.ok(html.includes('$6.0B'), 'fab capex must be shown');
+  assert.ok(!/leverage ratio/i.test(html), 'v1/v2\'s broken "leverage ratio" must not be ported');
+  assert.ok(!/revenueGw \/ \(1 - margin\)/.test(html), 'v1/v2\'s broken labRevPerGw formula must not be ported');
+});
+
+// ---------------------------------------------------------------------------
+// v2 port: Bottleneck Severity
+// ---------------------------------------------------------------------------
+
+test('bottleneck segment widths track railTightness', () => {
+  const base = { railTightness: { euv: 1, memory: 1, package: 1, power: 1 } };
+  const changed = { railTightness: { euv: 3, memory: 1, package: 1, power: 1 } };
+  const pctBase = bottleneckSegments(base).find(s => s.id === 'euv').pct;
+  const pctChanged = bottleneckSegments(changed).find(s => s.id === 'euv').pct;
+  assert.notEqual(pctBase, pctChanged, 'raising euv tightness must change its segment width');
+  assert.ok(pctChanged > pctBase, 'raising euv tightness must increase its share of the bar');
+});
+
+test('bottleneck segments dim exactly the rails with tightness below 1', () => {
+  const y = { railTightness: { euv: 0.5, memory: 2, package: 1.5, power: 1 } };
+  const segs = bottleneckSegments(y);
+  assert.equal(segs.find(s => s.id === 'euv').loose, true);
+  assert.equal(segs.find(s => s.id === 'memory').loose, false);
+  assert.equal(segs.find(s => s.id === 'package').loose, false);
+  assert.equal(segs.find(s => s.id === 'power').loose, false, 'tightness exactly 1 is not slack');
+});
+
+test('bottleneck panel renders for every real simulated year without throwing, and does not reintroduce labor/permitting sliders', () => {
+  for (const y of run) {
+    const html = bottleneckHtml(y);
+    assert.equal(typeof html, 'string');
+    assert.ok(html.length > 0);
+    assert.ok(!/labor/i.test(html), 'v2\'s laborSeverity slider must not be ported');
+    assert.ok(!/permit/i.test(html), 'v2\'s permitSeverity slider must not be ported');
+  }
+});
+
+test('bottleneck panel excludes capital -- it is a financial ceiling, not a physical one', () => {
+  const html = bottleneckHtml(run[0]);
+  assert.ok(!/seg-capital/.test(html));
+});
+
+// ---------------------------------------------------------------------------
+// v2 port: Diffusion (Jevons) Reality Check
+// ---------------------------------------------------------------------------
+
+test('diffusion panel marks exactly the years where diffusionBound is true', () => {
+  const rows = diffusionRows(run);
+  for (const r of rows) {
+    const y = run.find(x => x.year === r.year);
+    assert.equal(r.diffusionBound, y.diffusionBound, `${r.year}: diffusionBound must match the engine's own flag`);
+  }
+  const boundYears = rows.filter(r => r.diffusionBound).map(r => r.year);
+  assert.deepEqual(boundYears, [2027, 2028, 2029], 'DEFAULT_INPUTS/seed 12345 binds the ceiling in 2027-2029');
+
+  const html = diffusionHtml(run);
+  for (const r of rows) {
+    const expected = `data-year="${r.year}" data-diffusion-bound="${r.diffusionBound}"`;
+    assert.ok(html.includes(expected), `${r.year} must be marked data-diffusion-bound="${r.diffusionBound}"`);
+  }
+});
+
+test('diffusion panel states the mechanism: headroom, and what binding means for demand', () => {
+  const html = diffusionHtml(run);
+  assert.ok(/headroom/i.test(html));
+  assert.ok(/willingness-to-pay/i.test(html) || /clearing price/i.test(html));
+  assert.ok(html.includes('22.7'), 'must connect the mechanism to the 2029 finding');
+});
+
+test('renderers for the five ported panels emit strings and never throw on a real run', () => {
+  const activeTab = matrixTabForLimiter(run[0].limiter);
+  for (const fn of [
+    () => matrixHtml(run, MARKET_SCENARIOS, activeTab),
+    () => labComparisonHtml(run),
+    () => perGwEconomicsHtml(run[0]),
+    () => bottleneckHtml(run[0]),
+    () => diffusionHtml(run),
+  ]) {
+    const out = fn();
+    assert.equal(typeof out, 'string');
+    assert.ok(out.length > 0);
+  }
 });

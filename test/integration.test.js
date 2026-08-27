@@ -30,6 +30,14 @@ test('loads all four scripts in dependency order', () => {
   }
 });
 
+// v2 used inline onclick= handlers for the matrix tabs (setMatrixTab(...)) and
+// the bottleneck bar. The port's brief required addEventListener instead, so
+// matrixHtml/bottleneckHtml stay pure string producers with no DOM wiring
+// baked into the renderer.
+test('the v2 port uses addEventListener for tab clicks, not inline onclick=', () => {
+  assert.ok(!/onclick=/.test(HTML), 'v3 wiring must use addEventListener, not inline onclick=');
+});
+
 test('uses NO ES modules — they are CORS-blocked over file://', () => {
   assert.ok(!/<script[^>]+type=["']module["']/.test(HTML), 'type="module" breaks file:// loading');
   assert.ok(!/\bimport\s+.*\bfrom\b/.test(HTML), 'no import statements in the shell');
