@@ -145,9 +145,41 @@ function clearPrice(state, inputs, demandGw, supplyGw) {
   return state.computePrice + inputs.damping * (target - state.computePrice);
 }
 
+const HOARDER_INTERNAL_VALUE = 20;   // $M/MW Meta/SpaceX get from using it themselves
+const HOARDER_RELEASE_MAX = 0.6;     // fraction of stock releasable in one year
+
+// Labs outbid everyone when their willingness-to-pay clears the market price.
+function labShare(labWtp, price) {
+  if (!(price > 0)) return 1;
+  const ratio = labWtp / price;
+  return clamp((ratio - 1) / 3, 0, 1);
+}
+
+// Hoarders sell when renting out beats using it internally. Self-limiting:
+// hoarding only pays while the spread is wide, so it damps the scarcity it
+// profits from.
+function hoarderRelease(state, price) {
+  const spread = (price - HOARDER_INTERNAL_VALUE) / HOARDER_INTERNAL_VALUE;
+  const fraction = clamp(spread, 0, 1) * HOARDER_RELEASE_MAX;
+  return Math.min(state.hoardedStock, state.hoardedStock * fraction);
+}
+
+// Hoarded GW consumed physical rails in the year they were BUILT. Releasing
+// them later is inventory changing hands, never new supply -- otherwise the
+// model manufactures capacity from nothing.
+function allocate(state, inputs, demand, supplyGw) {
+  const newGw = Math.min(demand.total, supplyGw);
+  const released = hoarderRelease(state, state.computePrice);
+  const forSale = newGw + released;
+  const labGain = forSale * labShare(demand.labWtp, state.computePrice);
+  const hoardedStockAfter = state.hoardedStock - released + inputs.hoarderBuildGw;
+  return { newGw, forSale, released, labGain, hoardedStockAfter };
+}
+
 return {
   START_YEAR, END_YEAR, POWER_MODES, PIPELINE_BASE, PIPELINE_GROWTH,
   initialState, seedPipelines, computeCeilings, bindingConstraint, pipelineCapacity,
   arbitrageShelf, priceDamp, computeDemand, clearPrice,
+  labShare, hoarderRelease, allocate,
 };
 });
