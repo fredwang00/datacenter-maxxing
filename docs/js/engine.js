@@ -217,11 +217,60 @@ function stepCapital(state, inputs, capexThisYear) {
   return { credit, rate, availableCapital, cumulativeCredit, cumulativeCapex };
 }
 
+const WTP_FRACTION_MAX = 0.6;
+const CAPABILITY_GAIN = 0.015;
+const REG_STOP_SEVERITY = 0.25;   // a jurisdiction-level stop removes ~25% of revenue growth
+
+// Deterministic RNG (mulberry32) so runs are reproducible and testable.
+function makeRng(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// Revenue cannot exceed what the economy can actually absorb. Without this the
+// model prints $7T of 2028 lab revenue -- 6% of world GDP to two firms.
+function diffusionCeiling(state, inputs) {
+  const maxLabRevenueB = inputs.addressableValueB * state.captureRate;
+  const monetizedMw = state.labGw * 1000 * state.inferenceShare;
+  if (!(monetizedMw > 0)) return Infinity;
+  return (maxLabRevenueB * 1000) / monetizedMw;
+}
+
+// Discrete, correlated jurisdiction-level stops. NY EO 62 and the Texas ERCOT
+// audit took two major markets to zero approvals three weeks apart, so the
+// observed shape is step-function and contagious, not a smooth multiplier.
+function regStopFactor(rng, inputs) {
+  return rng() < inputs.regStopProbability ? (1 - REG_STOP_SEVERITY) : 1;
+}
+
+function stepMonetization(state, inputs, rng) {
+  const capability = state.capability + CAPABILITY_GAIN * (1 - state.inferenceShare) * state.labGw;
+  const stop = regStopFactor(rng, inputs);
+  const grown = state.labRevPerMw * (capability / state.capability) * (1 - inputs.regDragSmooth) * stop;
+
+  const inferenceShare = Math.max(0.05, state.inferenceShare - inputs.inferenceShareDecay);
+  const captureRate = state.captureRate * (1 + inputs.captureRateGrowth);
+  const wtpFraction = Math.min(WTP_FRACTION_MAX, state.wtpFraction * (1 + inputs.wtpFractionGrowth));
+
+  const next = { ...state, inferenceShare, captureRate };
+  const cap = diffusionCeiling(next, inputs);
+  const diffusionBound = grown > cap;
+  const labRevPerMw = diffusionBound ? cap : grown;
+
+  return { labRevPerMw, capability, inferenceShare, captureRate, wtpFraction, diffusionBound };
+}
+
 return {
   START_YEAR, END_YEAR, POWER_MODES, PIPELINE_BASE, PIPELINE_GROWTH,
   initialState, seedPipelines, computeCeilings, bindingConstraint, pipelineCapacity,
   arbitrageShelf, priceDamp, computeDemand, clearPrice,
   labShare, hoarderRelease, allocate, LAB_SHARE_SATURATION_RANGE,
   termPremium, creditCapacity, stepCapital,
+  makeRng, diffusionCeiling, regStopFactor, stepMonetization,
 };
 });
