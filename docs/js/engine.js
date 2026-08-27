@@ -115,6 +115,20 @@ function bindingConstraint(ceilings) {
   return best;
 }
 
+// PHYSICAL scarcity (fabs, tools, power plants) is a different phenomenon
+// from FINANCIAL scarcity (capital) and must not be treated identically.
+// If money is tight, hyperscalers build less -- memory/package/power
+// suppliers see LESS demand and should soften, not spike. `capital` is
+// deliberately excluded here: it constrains how much gets built (supplyGw,
+// used for allocation below), but it must never feed the rail-repricing
+// tightness signal, or a credit crunch reprices HBM as if it were a fab
+// shortage. Fix round 2 (Task 9): this was the bug behind fix round 1's
+// runaway-via-capital and the resulting pressure to inflate capital
+// parameters past plausibility.
+function physicalCeiling(ceilings) {
+  return Math.min(ceilings.euv, ceilings.memory, ceilings.package, ceilings.power);
+}
+
 const ARB_SHELF_MAX_GW = 12;
 const ARB_SHELF_SHARPNESS = 6;
 // Exponent on the headroom term in priceDamp. Bounded by the calibration
@@ -295,14 +309,22 @@ function stepMonetization(state, inputs, rng) {
 
 // Repriced per year against DEMAND vs a per-rail CEILING. Only memory, package
 // and power have component-specific ceilings (see computeCeilings); every
-// other rail defaults to the system-wide supplyGw so it still reprices on
-// overall market tightness, scaled by its own elasticity, rather than sitting
-// inert at a demandGw/demandGw === 1 ceiling that can never bind.
-function stepRails(state, inputs, demandGw, ceilings, supplyGw) {
+// other rail defaults to `physicalCeilingGw` so it still reprices on overall
+// PHYSICAL market tightness, scaled by its own elasticity, rather than
+// sitting inert at a demandGw/demandGw === 1 ceiling that can never bind.
+//
+// `physicalCeilingGw` -- not `supplyGw` -- deliberately excludes `capital`.
+// Fix round 2 (Task 9): the previous version defaulted to `supplyGw` (which
+// is min(ALL ceilings), including capital), so a capital crunch repriced
+// HBM/CoWoS/power upward exactly as if a fab had gone offline. Financial
+// scarcity reduces the VOLUME the model allocates (see `supplyGw` at the
+// simulate() call site, used for allocation) but must never masquerade as a
+// physical shortage in the repricing signal.
+function stepRails(state, inputs, demandGw, ceilings, physicalCeilingGw) {
   const railPrice = { ...state.railPrice };
   const tightness = {};
   for (const r of RAILS) {
-    const ceiling = ceilings[r.id] !== undefined ? ceilings[r.id] : supplyGw;
+    const ceiling = ceilings[r.id] !== undefined ? ceilings[r.id] : physicalCeilingGw;
     const t = railTightness(demandGw, ceiling);
     tightness[r.id] = t;
     if (r.elasticity === 'step') {
@@ -346,14 +368,19 @@ function simulate(inputs, seed) {
 
   for (let year = START_YEAR; year <= END_YEAR; year++) {
     const ceilings = computeCeilings(state, inputs, year);
+    // supplyGw (ALL ceilings, including capital) bounds how much can actually
+    // be BUILT and ALLOCATED this year -- a capital crunch genuinely limits
+    // volume. physicalCeilingGw (excluding capital) is the separate, correct
+    // basis for rail REPRICING -- see physicalCeiling()/stepRails().
     const supplyGw = Math.min(...Object.values(ceilings));
+    const physCeilGw = physicalCeiling(ceilings);
     const binding = bindingConstraint(ceilings);
 
     const demand = computeDemand(state, inputs, year);
     const nextPrice = clearPrice(state, inputs, demand.total, supplyGw);
     const alloc = allocate(state, inputs, demand, supplyGw);
 
-    const railStep = stepRails(state, inputs, demand.total, ceilings, supplyGw);
+    const railStep = stepRails(state, inputs, demand.total, ceilings, physCeilGw);
     const capex = alloc.newGw * railStep.capexPerGw;
     const cap = stepCapital(state, inputs, capex);
     const mon = stepMonetization(state, inputs, rng);
@@ -414,7 +441,7 @@ function simulate(inputs, seed) {
 
 return {
   START_YEAR, END_YEAR, POWER_MODES, PIPELINE_BASE, PIPELINE_GROWTH,
-  initialState, seedPipelines, computeCeilings, bindingConstraint, pipelineCapacity,
+  initialState, seedPipelines, computeCeilings, bindingConstraint, physicalCeiling, pipelineCapacity,
   arbitrageShelf, priceDamp, computeDemand, clearPrice,
   labShare, hoarderRelease, allocate, LAB_SHARE_SATURATION_RANGE,
   termPremium, creditCapacity, stepCapital,

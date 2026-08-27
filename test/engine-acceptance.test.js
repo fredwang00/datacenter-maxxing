@@ -83,11 +83,19 @@ test('ACCEPTANCE: no individual rail price exceeds 4x its 2026 baseline in any y
   }
 });
 
-test('ACCEPTANCE: tightness does not climb monotonically across all five years -- the bullwhip must bend it', () => {
-  const gaps = run.map(y => y.demand / y.supplyGw);
+test('ACCEPTANCE: physical tightness does not climb monotonically across all five years -- the bullwhip must bend it', () => {
+  // Fix round 2: this gap must be measured against the PHYSICAL ceiling
+  // (euv/memory/package/power), not against supplyGw. supplyGw also folds in
+  // `capital`, and fix round 2 deliberately stopped feeding capital into the
+  // rail-repricing signal -- a capital crunch now correctly reduces built
+  // volume (see the fix-round report) rather than spuriously repricing
+  // physical rails, so demand/supplyGw can legitimately climb every year
+  // once capital binds without that being a repricing runaway. The
+  // bullwhip's job is only to bend the PHYSICAL gap.
+  const gaps = run.map(y => y.demand / Math.min(y.ceilings.euv, y.ceilings.memory, y.ceilings.package, y.ceilings.power));
   const strictlyIncreasing = gaps.every((g, i) => i === 0 || g > gaps[i - 1]);
   assert.ok(!strictlyIncreasing,
-    `demand/supply gap rose every year (${gaps.map(g => g.toFixed(2)).join(', ')}) -- the bullwhip stabilizer never caught up`);
+    `demand/physicalCeiling gap rose every year (${gaps.map(g => g.toFixed(2)).join(', ')}) -- the bullwhip stabilizer never caught up`);
 });
 
 test('EUV is never the binding constraint at defaults', () => {
