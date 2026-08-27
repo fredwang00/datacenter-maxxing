@@ -15,20 +15,25 @@ test('CONSERVATION: released hoard is inventory, never new capacity', () => {
   assert.ok(Math.abs((r.forSale + r.hoarderGot) - (r.newGw + r.released)) < 1e-9, 'forSale + hoarderGot must equal newGw + released');
 });
 
-test('newGw is pinned by supply ceiling regardless of hoard stock', () => {
-  const s1 = initialState(DEFAULT_INPUTS);
-  s1.hoardedStock = 0;
-  s1.computePrice = 45;
-  const d1 = computeDemand(s1, DEFAULT_INPUTS, 2026);
-  const r1 = allocate(s1, DEFAULT_INPUTS, d1, 15);
+test('INVARIANT: released hoard never inflates newGw (demand-constrained)', () => {
+  const mk = (stock) => {
+    const s = initialState(DEFAULT_INPUTS);
+    s.computePrice = 45;          // above HOARDER_INTERNAL_VALUE, so released > 0
+    s.hoardedStock = stock;
+    const d = computeDemand(s, DEFAULT_INPUTS, 2026);
+    // Supply deliberately FAR above demand so newGw is demand-bound. If supply
+    // binds, the clamp hides any leakage of `released` into newGw — which is
+    // exactly how the previous version of this test was defeated.
+    return { r: allocate(s, DEFAULT_INPUTS, d, 5000), d };
+  };
+  const dry = mk(0);
+  const wet = mk(10);
 
-  const s2 = initialState(DEFAULT_INPUTS);
-  s2.hoardedStock = 10;
-  s2.computePrice = 45;
-  const d2 = computeDemand(s2, DEFAULT_INPUTS, 2026);
-  const r2 = allocate(s2, DEFAULT_INPUTS, d2, 15);
-
-  assert.ok(Math.abs(r1.newGw - r2.newGw) < 1e-9, 'identical supply/demand should yield identical newGw regardless of hoard stock');
+  assert.ok(wet.r.released > 0, 'test is only meaningful when released > 0');
+  assert.ok(Math.abs(dry.r.newGw - wet.r.newGw) < 1e-9,
+    `newGw must not move with hoarded stock: ${dry.r.newGw} vs ${wet.r.newGw}`);
+  assert.ok(Math.abs(wet.r.newGw - wet.d.total) < 1e-9,
+    'demand-constrained: newGw must equal demand.total exactly, never demand.total + released');
 });
 
 test('hoarders release more when price is high relative to internal use', () => {
