@@ -64,13 +64,20 @@ test('ladder top rung is flagged as non-scaling', () => {
 
 // CORRECTION 1: the brief's implementation sorted this array, making the
 // assertion below tautological. With the sort removed, this is a real claim
-// about the model -- verified across all five simulated years at
-// DEFAULT_INPUTS/seed 12345 (see the comment on ladderRungs). It could
-// legitimately fail under a different slider combination; that is the point.
-test('ladder rungs ascend from cost to end-user', () => {
-  const rungs = ladderRungs(run[0]);
-  for (let i = 1; i < rungs.length; i++) {
-    assert.ok(rungs[i].value >= rungs[i-1].value, `rung ${rungs[i].id} below ${rungs[i-1].id}`);
+// about the model. It could legitimately fail under a different slider
+// combination; that is the point.
+//
+// I2 fix (final review): this used to check `run[0]` (2026) only. The old
+// flat `computePrice * 2.2` scarcity rung inverted past lab revenue in 2028
+// and 2030 at DEFAULT_INPUTS/seed 12345 -- a single-year check could not have
+// caught it. Every simulated year must hold, not just the first.
+test('ladder rungs ascend from cost to end-user, every simulated year', () => {
+  for (const y of run) {
+    const rungs = ladderRungs(y);
+    for (let i = 1; i < rungs.length; i++) {
+      assert.ok(rungs[i].value >= rungs[i - 1].value,
+        `${y.year}: rung ${rungs[i].id} (${rungs[i].value.toFixed(1)}) below ${rungs[i - 1].id} (${rungs[i - 1].value.toFixed(1)})`);
+    }
   }
 });
 

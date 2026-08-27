@@ -14,7 +14,7 @@
 })(typeof self !== 'undefined' ? self : this, function (rails, engine, presets) {
 
 const { RAILS } = rails;
-const { impliedCreditDepthFor } = engine;
+const { impliedCreditDepthFor, hoarderRelease } = engine;
 const { DEFAULT_INPUTS } = presets;
 
 function fmtB(n) {
@@ -174,32 +174,55 @@ function calibrationHtml(run, targets, inputs = DEFAULT_INPUTS, seed) {
 // commodity renter pays < what a scarcity-driven hoarder captures < what a
 // lab earns per MW < the marginal rate the single best end-user pays.
 //
-// This order is NOT enforced by construction -- there is no sort here. It is
-// a claim about the model, and the "ladder rungs ascend" test checks it for
-// real. Verified across all five simulated years at DEFAULT_INPUTS/seed
-// 12345 ($M/MW):
-//   2026   9.1 < 13.0 <  28.6 <  49.2 < 196.8
-//   2027   9.7 < 15.9 <  34.9 <  55.4 < 221.6
-//   2028  11.6 < 25.9 <  57.1 <  76.6 < 306.4
-//   2029  15.7 < 46.0 < 101.1 < 116.8 < 467.1
-//   2030  19.0 < 70.1 < 154.2 < 168.6 < 674.5
-// The scarcity-to-lab gap is not comfortable margin: relative to the lab
-// rung it narrows to ~13% by 2029 and ~9% by 2030. A different slider
-// combination could plausibly invert it -- at which point this test should,
-// and will, legitimately fail.
+// This order is NOT enforced by a sort -- it is a claim about the model, and
+// the "ladder rungs ascend" test checks it for real, across every simulated
+// year, not just 2026.
 //
-// The top rung (end-user capture) is DISPLAY ONLY -- Jane Street's
-// $200-500M/MW is a marginal rate measured on the best user in the world and
-// does not scale to a gigawatt. It must never feed a calculation.
+// I2 fix (final review): the old flat `computePrice * 2.2` scarcity rung was
+// safe only while wtpFraction stayed below 1/2.2 ~= 0.45; the default STARTS
+// at 0.50 and rises to a 0.6 cap, so it was never actually safe, and it
+// inverted past lab revenue in 2028 ($55.4M vs $27.1M) and 2030. A five-year
+// "verified" table used to live in this comment -- by the time the inversion
+// was caught, only its 2026 row still matched the model. Don't trust a
+// comment for a live invariant; the test below is what actually checks it.
+//
+// Scarcity/hoarder is now derived from the engine's own hoarderRelease rather
+// than an unsourced render-layer multiplier: it reuses hoarderRelease with a
+// synthetic 1-GW stock to read off exactly the release FRACTION the engine
+// would apply at this year's price (hoarderRelease(state, price) returns
+// min(hoardedStock, hoardedStock * fraction); at hoardedStock = 1 that IS the
+// fraction), then places the rung that fraction of the way from commodity
+// rental up to lab revenue. HOARDER_RELEASE_MAX (0.6, engine.js) caps that
+// fraction, so the rung can reach at most 60% of the way to lab revenue --
+// it can never cross it, unlike the old multiplier. Below HOARDER_INTERNAL_
+// VALUE ($20M/MW) the fraction is 0 and the rung sits exactly on rental --
+// which is correct: a hoarder has no scarcity premium to extract when price
+// hasn't cleared their own internal-use value. This assumes labRevPerMw >=
+// computePrice, true at defaults across all five years; if a slider
+// combination ever inverts that base relationship the ladder's ascending
+// claim is broken regardless of this formula, and the test should, and will,
+// legitimately fail.
+//
+// The top rung (end-user capture) is DISPLAY ONLY and now a pinned constant,
+// not a multiple of a model output: Jane Street's $200-500M/MW is a marginal
+// rate measured on the single best user in the world, observed once,
+// independent of this model -- tying it to labRevPerMw (the old `* 4`) let it
+// drift with the simulation and land at $108/MW by 2028, BELOW its own
+// sourced floor, while still carrying a "Jane Street" tooltip. It must never
+// feed a calculation.
+const JANE_STREET_MARGINAL_RATE_MW = 350; // midpoint of the sourced $200-500M/MW band
+
 function ladderRungs(y) {
   const ownCost = (y.capexPerGw / 5) + 1.5;   // 5yr amortization + power and opex
+  const releaseFraction = hoarderRelease({ hoardedStock: 1 }, y.computePrice);
+  const scarcity = y.computePrice + (y.labRevPerMw - y.computePrice) * releaseFraction;
   return [
     { id: 'cost',     label: 'Cost to own + operate', value: ownCost,          scales: true,  warn: '' },
     { id: 'rental',   label: 'Commodity rental',      value: y.computePrice,   scales: true,  warn: '' },
-    { id: 'scarcity', label: 'Scarcity / hoarder',    value: y.computePrice * 2.2, scales: true, warn: '' },
+    { id: 'scarcity', label: 'Scarcity / hoarder',    value: scarcity,         scales: true,  warn: '' },
     { id: 'lab',      label: 'Lab revenue',           value: y.labRevPerMw,    scales: true,  warn: '' },
-    { id: 'enduser',  label: 'End-user capture',      value: y.labRevPerMw * 4, scales: false,
-      warn: 'Marginal rate on the best user in the world. Does not scale to a gigawatt.' },
+    { id: 'enduser',  label: 'End-user capture',      value: JANE_STREET_MARGINAL_RATE_MW, scales: false,
+      warn: 'Marginal rate on the best user in the world (Jane Street, sourced $200-500M/MW). Does not scale to a gigawatt.' },
   ];
 }
 
