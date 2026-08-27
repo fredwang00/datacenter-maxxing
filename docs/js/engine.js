@@ -217,9 +217,21 @@ function stepCapital(state, inputs, capexThisYear) {
   return { credit, rate, availableCapital, cumulativeCredit, cumulativeCapex };
 }
 
+// Labs' willingness-to-pay for compute as a fraction of revenue. Dylan's source
+// figure is 0.5 (labs paying ~$50M/MW while generating ~$100M). The ceiling sits
+// above it deliberately — that snapshot is not a hard bound. Beyond roughly 0.6,
+// a lab would hand over almost all gross revenue for compute, which no operator would do.
 const WTP_FRACTION_MAX = 0.6;
+
+// Annual capability growth driven by research-compute scaling. Compounds with lab GW
+// and inverts when inference dominates (inferenceShare rising suppresses research
+// opportunity). Calibrated to produce observed capability gains over a 5-year horizon.
 const CAPABILITY_GAIN = 0.015;
-const REG_STOP_SEVERITY = 0.25;   // a jurisdiction-level stop removes ~25% of revenue growth
+
+// Regulatory jurisdiction-level stops (e.g., NY EO 62, Texas ERCOT audit) fire as a
+// discrete Bernoulli draw. When a stop occurs, suppress revenue by this fraction (~25%).
+// This is a step-function mechanism, separate from regDragSmooth's smooth channel.
+const REG_STOP_SEVERITY = 0.25;
 
 // Deterministic RNG (mulberry32) so runs are reproducible and testable.
 function makeRng(seed) {
