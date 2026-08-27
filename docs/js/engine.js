@@ -192,10 +192,36 @@ function allocate(state, inputs, demand, supplyGw) {
   return { newGw, forSale, released, hoarderGot, labGain, hoardedStockAfter };
 }
 
+const TERM_PREMIUM_SLOPE = 0.02;   // calibrated so ~$5T cumulative credit lifts Meta 5.5% -> ~8%
+const RATE_MAX = 0.25;
+const CREDIT_RATION_SLOPE = 8;
+
+function termPremium(creditRatio) {
+  return TERM_PREMIUM_SLOPE * Math.max(0, creditRatio);
+}
+
+// Bounded by market depth and rationed BY price, not expanded by it.
+// "Meta would happily pay 8%; the market won't want them to."
+function creditCapacity(rate, inputs) {
+  const excess = Math.max(0, rate - inputs.baseRate);
+  return inputs.creditMarketDepth * Math.exp(-CREDIT_RATION_SLOPE * excess);
+}
+
+function stepCapital(state, inputs, capexThisYear) {
+  const cashAvailable = inputs.ecosystemCashFlow * inputs.reinvestRate;
+  const credit = Math.max(0, capexThisYear - cashAvailable);
+  const cumulativeCredit = state.cumulativeCredit + credit;
+  const cumulativeCapex = state.cumulativeCapex + capexThisYear;
+  const rate = Math.min(RATE_MAX, inputs.baseRate + termPremium(cumulativeCredit / inputs.creditMarketDepth));
+  const availableCapital = inputs.ecosystemCashFlow + creditCapacity(rate, inputs);
+  return { credit, rate, availableCapital, cumulativeCredit, cumulativeCapex };
+}
+
 return {
   START_YEAR, END_YEAR, POWER_MODES, PIPELINE_BASE, PIPELINE_GROWTH,
   initialState, seedPipelines, computeCeilings, bindingConstraint, pipelineCapacity,
   arbitrageShelf, priceDamp, computeDemand, clearPrice,
   labShare, hoarderRelease, allocate, LAB_SHARE_SATURATION_RANGE,
+  termPremium, creditCapacity, stepCapital,
 };
 });
