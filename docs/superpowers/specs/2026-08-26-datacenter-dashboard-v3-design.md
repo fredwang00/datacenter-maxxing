@@ -453,15 +453,32 @@ footprint. `cumulativeEuvTools` should be driven by this series rather than by a
 the slider expressing deviation from it.
 
 **This contradicts the transcript, in the direction that matters.** Dylan puts ~100 tools/yr at
-2030; ASML's own plan reaches ~110/yr by **2028**, two years earlier. Running the corrected stock
-model on ASML's numbers — roughly 290–300 cumulative tools at end-2025, +65/+85/+110 — gives an EUV
-ceiling of about **50 GW/yr in 2026 rising to ~93 GW/yr by 2028** at 60% AI allocation, against 30
-and 70 GW of actual demand.
+2030; ASML's own plan reaches ~110/yr by **2028**, two years earlier.
 
-**EUV does not bind at any point in the 2026–2030 window under ASML's disclosed plan.** That is a
-stronger conclusion than the one in this spec's opening, and it is sourced to the supplier rather
-than inferred. The rail stays in the model — it is the right place for a Zeiss shock to enter — but
-the base case should show it slack throughout.
+**Install-lag convention.** A tool shipped in year Y does not produce a full year of wafers in Y —
+it needs months to install and qualify. The ceiling for year Y therefore uses tools cumulative
+**through the end of Y−1**. This must be stated explicitly because the answer is sensitive to it:
+counting same-year shipments moves the 2028 ceiling from ~75 to ~94 GW/yr. Constant:
+`EUV_INSTALL_LAG_YEARS = 1`.
+
+Running the corrected stock model on ASML's series — ~290 cumulative tools at end-2025, then
++65/+85/+110 — at 60% AI allocation and 3.5 tools/GW:
+
+| Year | Installed base | Ceiling GW/yr | Demand GW | Headroom |
+|---|---|---|---|---|
+| 2026 | 290 | **49.7** | 30 | +66% |
+| 2027 | 355 | **60.9** | 50 | +22% |
+| 2028 | 440 | **75.4** | 70 | **+8%** |
+
+**EUV is slack in 2026–27 and marginal in 2028** under the most conservative reading. That is more
+nuanced than "never binds," and the honest version: EUV is not the 2026 constraint v1 claimed, but
+it is not comfortably slack forever either. Three things push it back to slack — a higher AI
+allocation than 60%, ASML sustaining +30%/yr past 2028, or the disputed wafer count resolving low
+(which alone would triple the ceiling). Two push the other way: High-NA transition raising
+tools/GW, or a Zeiss shock.
+
+The rail stays in the model and the base case should show 2028 headroom in single digits, not a
+comfortable margin.
 
 ### Anchors that survived
 
@@ -720,7 +737,7 @@ The engine at default settings must reproduce, within 10%:
 | 2028 capex per GW | $52B | derived: $3.65T ÷ 70 |
 | Facility subtotal (shell+elec+cooling) | $11.3–11.4B | Epoch, JLL, T&T converge |
 | Turbine lead time | 5 yr | GE Vernova 2031 reservations |
-| EUV ceiling 2026 / 2028 | ~50 / ~93 GW/yr (slack) | ASML disclosed 65/85/110 |
+| EUV ceiling 2026 / 2027 / 2028 | ~50 / ~61 / ~75 GW/yr | ASML 65/85/110, install lag 1yr |
 | Cumulative capex 2024–29 | $11T | SemiAnalysis model |
 | Cumulative credit 2024–29 | $5T | SemiAnalysis model |
 | Lab share of 2028 incremental | 70–80% | transcript |
@@ -768,13 +785,12 @@ Permanently out:
 | `dcElec` + `cooling` + `shell` | $6.0B/GW combined | **$11.4B/GW** | ~2x too cheap — cancelled the `power` error in the total |
 | `euv` | $1.4B per GW/yr | **$0.95B** | $400M/tool is High-NA, not realized ASP |
 | `optics` | $0.4B per GW/yr | **$0.23B** ($185–285M) | now bounded by ASML's disclosed Zeiss purchases |
+| `memory` | $5.0B/GW (`hbm`) | **$4.9B/GW**, step-repricing | estimate was close; the *shape* was wrong |
+| `package` | $1.8B/GW | **$0.6B/GW** | ~3x too high |
 
 The `power`/`dc` pair is worth dwelling on: two ~2x errors in opposite directions that **summed to
 the right total**. No amount of top-line calibration would have caught it. Rails have to be sourced
 individually.
-
-| `memory` | $5.0B/GW (`hbm`) | **$4.9B/GW**, step-repricing | estimate was close; the *shape* was wrong |
-| `package` | $1.8B/GW | **$0.6B/GW** | ~3x too high |
 
 `package` decomposes as CoWoS-L at ~$950/package × 256K packages/GW ≈ $244M, ~$460M including
 packaging yield loss, plus ~$90–115M of ABF substrate across the full rack. `memory` is the
