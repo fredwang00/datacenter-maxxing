@@ -1,6 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
 const { simulate } = require('../docs/js/engine.js');
+const { RAILS } = require('../docs/js/rails.js');
 const { DEFAULT_INPUTS, CALIBRATION_TARGETS } = require('../docs/js/presets.js');
 
 const run = simulate(DEFAULT_INPUTS, 12345);
@@ -44,6 +45,49 @@ test('ACCEPTANCE: 2028 cumulative world GW near 200', () => {
 test('ACCEPTANCE: labs take 70-80% of 2028 incremental', () => {
   const share = byYear[2028].labShareOfNew;
   assert.ok(share > 0.60 && share < 0.90, `got ${(share*100).toFixed(0)}%`);
+});
+
+// Fix round 1 (Task 9): the acceptance suite originally bounded capex growth
+// only from below (2028 > 1.25x 2026), which a runaway that never resolves
+// passes trivially. These three tests bound it from above and check that the
+// bullwhip's stabilizing half (stepBullwhip) actually turns tightness over,
+// rather than letting it climb forever.
+
+test('ACCEPTANCE: capexPerGw stays within a plausible band every year, not just 2028', () => {
+  // Sourced inflation is ~1.36x by 2028 (38.2 -> ~52). Extending that trend
+  // linearly to 2030 gives roughly 1.8x; 2.5x is a deliberately looser hard
+  // ceiling on top of that trend, so a genuine runaway (the fix-round bug hit
+  // ~6.2x by 2030) is caught without pinning every year to the exact sourced
+  // trend line.
+  const base = byYear[2026].capexPerGw;
+  const ceilingMultiple = { 2026: 1.0, 2027: 1.375, 2028: 1.75, 2029: 2.125, 2030: 2.5 };
+  for (const y of run) {
+    const multiple = y.capexPerGw / base;
+    assert.ok(multiple <= ceilingMultiple[y.year],
+      `${y.year}: capexPerGw ${y.capexPerGw.toFixed(1)} is ${multiple.toFixed(2)}x the 2026 baseline, exceeds the ${ceilingMultiple[y.year]}x ceiling`);
+  }
+});
+
+test('ACCEPTANCE: no individual rail price exceeds 4x its 2026 baseline in any year', () => {
+  // 4x is a deliberately generous backstop -- well above what any single
+  // rail should need under a resolved (non-runaway) tightness path -- meant
+  // to catch a genuine blow-up (the fix-round bug moved vendorMargin's
+  // aggregate ~8.2x) rather than to pin normal repricing.
+  const RAIL_PRICE_MAX_MULTIPLE = 4;
+  for (const y of run) {
+    for (const r of RAILS) {
+      const multiple = y.railPrice[r.id] / r.price2026;
+      assert.ok(multiple <= RAIL_PRICE_MAX_MULTIPLE,
+        `${y.year}.${r.id}: ${y.railPrice[r.id].toFixed(2)} is ${multiple.toFixed(2)}x its 2026 baseline (${r.price2026}), exceeds ${RAIL_PRICE_MAX_MULTIPLE}x`);
+    }
+  }
+});
+
+test('ACCEPTANCE: tightness does not climb monotonically across all five years -- the bullwhip must bend it', () => {
+  const gaps = run.map(y => y.demand / y.supplyGw);
+  const strictlyIncreasing = gaps.every((g, i) => i === 0 || g > gaps[i - 1]);
+  assert.ok(!strictlyIncreasing,
+    `demand/supply gap rose every year (${gaps.map(g => g.toFixed(2)).join(', ')}) -- the bullwhip stabilizer never caught up`);
 });
 
 test('EUV is never the binding constraint at defaults', () => {
