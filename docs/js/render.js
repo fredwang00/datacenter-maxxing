@@ -75,7 +75,13 @@ function stateTableHtml(run) {
       Number.isFinite(y.rate) ? (y.rate * 100).toFixed(1) + '%' : '—',
       fmtGw(y.labGw), fmtGw(y.hoarderGot), fmtPct(y.inferenceShare), labRevCell,
     ];
-    const mark = y.clamped ? ' <span class="warn" title="a clamp bound — parameters are likely wrong">clamped</span>' : '';
+    // I7 fix (final review): this used to say "parameters are likely wrong."
+    // `clamped` fires whenever nextPrice hits the floorCost arbitrage shelf --
+    // at DEFAULT_INPUTS/seed 12345 that's 2029 (price 11.00 = floorCost
+    // exactly). That is the spec's stability defence #1 ENGAGING, not a sign
+    // something is misconfigured -- wording it as an error contradicted the
+    // header's own framing of 2029 as a legitimate finding.
+    const mark = y.clamped ? ' <span class="warn" title="price hit the floor-cost arbitrage shelf -- the model\'s stability defence engaging, not necessarily a parameter error">clamped</span>' : '';
     const rowClass = [y.clamped ? 'row-clamped' : '', y.diffusionBound ? 'row-diffusion-bound' : '']
       .filter(Boolean).join(' ');
     return `<tr class="${rowClass}">` +

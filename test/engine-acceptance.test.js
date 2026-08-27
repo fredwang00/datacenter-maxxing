@@ -155,6 +155,21 @@ test('ACCEPTANCE: year-over-year newGw swing stays under a known-limitation ceil
   }
 });
 
+// M1 fix (final review): the only existing diffusionCeilingMw test
+// (engine-monetization.test.js) used a synthetic scenario and asserted
+// `cap < 70` -- three orders of magnitude looser than the actual value there
+// (4.2). No test bounded diffusionCeilingMw at DEFAULT_INPUTS itself; drift
+// was only caught incidentally by unrelated snapshot pins (one of which
+// locked in the C1 false cause). Pin a real numeric band on the actual run.
+test('ACCEPTANCE: diffusionCeilingMw sits in a real numeric band every year, not just "< 70"', () => {
+  const bands = { 2026: [120, 200], 2027: [30, 65], 2028: [15, 40], 2029: [15, 40], 2030: [25, 60] };
+  for (const y of run) {
+    const [lo, hi] = bands[y.year];
+    assert.ok(y.diffusionCeilingMw >= lo && y.diffusionCeilingMw <= hi,
+      `${y.year}: diffusionCeilingMw ${y.diffusionCeilingMw.toFixed(1)} outside expected band [${lo}, ${hi}]`);
+  }
+});
+
 test('ACCEPTANCE: compute price inflects 13 -> 25 -> 40', () => {
   assert.ok(byYear[2026].computePrice >= 12 && byYear[2026].computePrice <= 18, byYear[2026].computePrice);
   assert.ok(byYear[2028].computePrice > byYear[2026].computePrice * 1.8, 'price must inflect upward');

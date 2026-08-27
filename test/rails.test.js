@@ -62,15 +62,24 @@ test('every parent reference resolves to a real rail', () => {
 const { clamp, railTightness, repriceContinuous, repriceStep, newStepState,
         TIGHTNESS_MAX, MEMORY_RESET_INTERVAL, REPRICE_MULTIPLIER_MIN } = require('../docs/js/rails.js');
 
+// M10 fix (final review): comparing against the imported TIGHTNESS_MAX
+// constant is tautological -- if TIGHTNESS_MAX ever drifted to, say, 5.0,
+// this assertion would silently keep passing since both sides move together.
+// Pin the literal value (3.0) so a drift is actually caught, and keep a
+// separate sanity check that the constant itself still equals that literal.
+test('TIGHTNESS_MAX is pinned to 3.0, not just internally consistent', () => {
+  assert.equal(TIGHTNESS_MAX, 3.0, 'a change here is a real calibration change, not a refactor');
+});
+
 test('tightness is demand over ceiling, clamped to [0.5, 3.0]', () => {
   assert.ok(Math.abs(railTightness(30, 30) - 1.0) < 1e-9);
   assert.ok(Math.abs(railTightness(45, 30) - 1.5) < 1e-9);
-  assert.equal(railTightness(1000, 30), TIGHTNESS_MAX, 'must clamp high');
+  assert.equal(railTightness(1000, 30), 3.0, 'must clamp high to the literal TIGHTNESS_MAX value');
   assert.equal(railTightness(1, 1000), 0.5, 'must clamp low');
 });
 
 test('a zero ceiling is maximally tight, not a divide-by-zero', () => {
-  assert.equal(railTightness(30, 0), TIGHTNESS_MAX);
+  assert.equal(railTightness(30, 0), 3.0);
 });
 
 test('continuous repricing scales with elasticity', () => {

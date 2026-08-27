@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { initialState, computeDemand, allocate, labShare, hoarderRelease, LAB_SHARE_SATURATION_RANGE } = require('../docs/js/engine.js');
+const { initialState, computeDemand, allocate, labShare, hoarderRelease, LAB_SHARE_SATURATION_RANGE, simulate } = require('../docs/js/engine.js');
 const { DEFAULT_INPUTS } = require('../docs/js/presets.js');
 
 test('CONSERVATION: released hoard is inventory, never new capacity', () => {
@@ -355,4 +355,37 @@ test('allocate at hoardedStock: 0 with high price confirms released === 0 and ho
   const r = allocate(s, DEFAULT_INPUTS, d, 5000);
   assert.equal(r.released, 0, 'released must be 0 when hoardedStock is 0');
   assert.equal(r.hoardedStockAfter, r.hoarderGot, 'hoardedStockAfter must equal hoarderGot when nothing is released');
+});
+
+// M11 fix (final review): the year-state's `labShareOfNew` (set in simulate(),
+// not allocate()) divides by `forSale` -- new build net of the hoarder's own
+// take, PLUS released hoarded inventory -- not `newGw`. Reverting that
+// denominator to `newGw` passed every test above, because none of them
+// reconstruct forSale independently from the emitted year-state and compare
+// against it: `forSale` and `labGain` are never emitted directly. Recover
+// them here from consecutive year states using allocate's own documented
+// identities (forSale = (newGw - hoarderGot) + released; hoardedStockAfter =
+// hoardedStock - released + hoarderGot; labGain = this year's labGw minus
+// last year's), then check labShareOfNew against that reconstruction, not
+// against another field simulate() happens to also emit.
+test('labShareOfNew divides by forSale, not newGw -- reconstructed independently year by year', () => {
+  const run = simulate(DEFAULT_INPUTS, 12345);
+  const s0 = initialState(DEFAULT_INPUTS);
+  let prevHoardedStock = s0.hoardedStock;
+  let prevLabGw = s0.labGw;
+  let sawMeaningfulDivergence = false;
+  for (const y of run) {
+    const released = prevHoardedStock - y.hoardedStock + y.hoarderGot;
+    const labGain = y.labGw - prevLabGw;
+    const forSale = (y.newGw - y.hoarderGot) + released;
+    const expected = forSale > 0 ? labGain / forSale : 0;
+    assert.ok(Math.abs(y.labShareOfNew - expected) < 1e-6,
+      `${y.year}: labShareOfNew ${y.labShareOfNew} != labGain/forSale ${expected.toFixed(4)} (forSale=${forSale.toFixed(2)})`);
+    const viaNewGw = y.newGw > 0 ? labGain / y.newGw : 0;
+    if (Math.abs(expected - viaNewGw) > 0.01) sawMeaningfulDivergence = true;
+    prevHoardedStock = y.hoardedStock;
+    prevLabGw = y.labGw;
+  }
+  assert.ok(sawMeaningfulDivergence,
+    'test is only meaningful if some year has forSale far enough from newGw to distinguish the two denominators');
 });

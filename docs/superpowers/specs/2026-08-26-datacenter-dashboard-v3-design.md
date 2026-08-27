@@ -724,7 +724,14 @@ given Dylan-calibrated defaults with deliberately wide slider ranges.
 
 ### Retained from v1/v2
 
-- **Pipeline** → computed rail ladder; `'55K'` / `'170K'` become live quantities
+- **Pipeline** → ships as a current-year state snapshot (the "Current-year snapshot" panel renders
+  the same per-year rail/limiter/price row the full state table does, pinned to the first simulated
+  year), not a live-quantity panel. `'55K'` (logic wafers/GW) remains an INPUT slider only — it feeds
+  `euvToolsPerGwFromWafers` but is never displayed back as a computed quantity — and `'170K'` (DRAM
+  wafers/GW) is not modelled at all: no field for it exists anywhere in engine.js, rails.js, or
+  presets.js. Making either a genuine live quantity needs new model surface (a DRAM/memory-tooling
+  sub-model this branch never built), not a rendering change, so it is deferred to a follow-up spec
+  rather than shipped as a label on a number the model doesn't actually compute. (Final review, I10.)
 - **Per-GW economics** → recalibrated, with the ~1.5% amortization result surfaced
 - **Capacity ceiling** → absorbed into the state table
 - **Bottleneck bar + timeline** → emergent per year

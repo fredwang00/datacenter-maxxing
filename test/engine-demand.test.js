@@ -67,3 +67,27 @@ test('all four buyer classes are present and non-negative', () => {
   }
   assert.ok(Math.abs(d.total - (d.labDemand + d.hyperscaler + d.hoarder + d.arbitrage)) < 1e-9);
 });
+
+// T5 fix (final review): the checks above cannot catch a wrong formula for
+// any ONE class -- `total` is DEFINED in computeDemand as the sum of these
+// same four fields, so a bug that changes labDemand (say) still keeps
+// total === sum trivially. Pin each class to its own formula independently,
+// so a wrong formula for one class fails on that class specifically.
+test('each buyer class matches its own formula, not just the total', () => {
+  const s = initialState(DEFAULT_INPUTS);
+  const d = computeDemand(s, DEFAULT_INPUTS, 2026);
+
+  const labWtp = s.labRevPerMw * s.wtpFraction;
+  const expectedLabDemand = s.labGw * (DEFAULT_INPUTS.labGrowthRate - 1) * priceDamp(s.computePrice, labWtp);
+  assert.ok(Math.abs(d.labDemand - expectedLabDemand) < 1e-9,
+    `labDemand ${d.labDemand} != labGw * (labGrowthRate - 1) * priceDamp(price, labWtp) = ${expectedLabDemand}`);
+
+  assert.equal(d.hyperscaler, DEFAULT_INPUTS.hyperscalerDemandGw,
+    'hyperscaler demand is a direct input pass-through, not a derived quantity');
+  assert.equal(d.hoarder, DEFAULT_INPUTS.hoarderBuildGw,
+    'hoarder demand is a direct input pass-through, not a derived quantity');
+
+  const expectedArbitrage = arbitrageShelf(s.computePrice, DEFAULT_INPUTS.floorCost);
+  assert.ok(Math.abs(d.arbitrage - expectedArbitrage) < 1e-9,
+    `arbitrage ${d.arbitrage} != arbitrageShelf(price, floorCost) = ${expectedArbitrage}`);
+});

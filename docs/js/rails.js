@@ -5,12 +5,6 @@
 //   basis 'annuity' = $B per GW/YEAR of production capacity (a fab emits GW forever)
 // All perGw figures are IT-load basis. See the spec's units guard.
 
-// Power Usage Effectiveness: facility power = IT power * PUE. Exists so a
-// future task can show facility-load equivalents alongside IT-load figures.
-// Exported but has NO CONSUMER yet (verified by grep) -- delete it if the
-// render task ships without one.
-const PUE = 1.25;
-
 const RAILS = [
   // ---- perGw: these sum to capexPerGw ----
   { id: 'servers', label: 'Accelerator + server BOM', basis: 'perGw', parent: null,
@@ -144,7 +138,7 @@ function repriceStep(price, tightness, stepState, resetInterval) {
   return price;
 }
 
-const _railsApi = { PUE, RAILS, railById, topLevelPerGwIds, topLevelAnnuityIds, initialRailPrice, sumPerGw, clamp, railTightness, repriceContinuous, repriceStep, newStepState, TIGHTNESS_MIN, TIGHTNESS_MAX, STEP_GAIN, MEMORY_RESET_INTERVAL, REPRICE_MULTIPLIER_MIN };
+const _railsApi = { RAILS, railById, topLevelPerGwIds, topLevelAnnuityIds, initialRailPrice, sumPerGw, clamp, railTightness, repriceContinuous, repriceStep, newStepState, TIGHTNESS_MIN, TIGHTNESS_MAX, STEP_GAIN, MEMORY_RESET_INTERVAL, REPRICE_MULTIPLIER_MIN };
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = _railsApi;
 } else if (typeof self !== 'undefined') {

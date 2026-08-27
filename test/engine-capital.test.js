@@ -1,7 +1,21 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { initialState, stepCapital, termPremium, creditCapacity } = require('../docs/js/engine.js');
+const { initialState, stepCapital, termPremium, creditCapacity, RATE_MAX } = require('../docs/js/engine.js');
 const { DEFAULT_INPUTS } = require('../docs/js/presets.js');
+
+// M10 fix (final review): pin the literal ceiling value, not just that
+// stepCapital's rate is bounded by "whatever RATE_MAX is" -- comparing an
+// observed rate to the imported constant itself is tautological (both sides
+// move together if RATE_MAX ever changes). Drive cumulativeCredit far past
+// any plausible term premium so the rate genuinely saturates, then assert
+// against the literal value.
+test('RATE_MAX is pinned to 0.25, and the rate genuinely saturates there', () => {
+  assert.equal(RATE_MAX, 0.25, 'a change here is a real calibration change, not a refactor');
+  const s = initialState(DEFAULT_INPUTS);
+  s.cumulativeCredit = 1e9; // absurdly high: forces termPremium far past RATE_MAX
+  const r = stepCapital(s, DEFAULT_INPUTS, 3000);
+  assert.equal(r.rate, 0.25, `rate should clamp to the literal RATE_MAX, got ${r.rate}`);
+});
 
 test('term premium rises with cumulative credit', () => {
   assert.ok(termPremium(2.0) > termPremium(0.5));

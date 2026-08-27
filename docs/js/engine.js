@@ -10,7 +10,7 @@
 })(typeof self !== 'undefined' ? self : this, function (rails, presets) {
 
 const { RAILS, railById, initialRailPrice, sumPerGw, newStepState, railTightness } = rails;
-const { clamp, repriceContinuous, repriceStep, MEMORY_RESET_INTERVAL } = rails;
+const { clamp, repriceContinuous, repriceStep, MEMORY_RESET_INTERVAL, TIGHTNESS_MAX } = rails;
 const { euvCeilingGw, euvToolsPerGwFromWafers } = presets;
 
 const START_YEAR = 2026;
@@ -213,7 +213,11 @@ function computeDemand(state, inputs, year) {
 function clearPrice(state, inputs, demandGw, supplyGw) {
   const labWtp = state.labRevPerMw * state.wtpFraction;
   const ceiling = Math.max(labWtp, inputs.floorCost);
-  const gap = supplyGw > 0 ? demandGw / supplyGw : 3;
+  // T5 fix (final review): the zero-supply fallback used a bare `3`, which
+  // silently equalled rails.js's TIGHTNESS_MAX (the same "maximally tight"
+  // ceiling railTightness() clamps to for a zero rail ceiling) without
+  // saying so. Named explicitly so the two don't drift apart unnoticed.
+  const gap = supplyGw > 0 ? demandGw / supplyGw : TIGHTNESS_MAX;
   const raw = state.computePrice * Math.pow(gap, inputs.priceElasticity);
   const target = clamp(raw, inputs.floorCost, ceiling);
   return state.computePrice + inputs.damping * (target - state.computePrice);
@@ -613,7 +617,7 @@ return {
   physicalCeiling, pipelineCapacity,
   arbitrageShelf, priceDamp, LAB_TAIL_SHARE, LAB_TAIL_DECAY, computeDemand, clearPrice,
   labShare, hoarderRelease, allocate, LAB_SHARE_SATURATION_RANGE,
-  termPremium, creditCapacity, stepCapital,
+  termPremium, creditCapacity, stepCapital, RATE_MAX,
   makeRng, diffusionCeiling, regStopFactor, stepMonetization,
   stepRails, stepBullwhip, BULLWHIP_GAIN, simulate, impliedCreditDepthFor,
   HISTORICAL_START, backtest,

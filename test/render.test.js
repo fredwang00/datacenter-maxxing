@@ -1,7 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
 const { stateTableHtml, calibrationRows, calibrationHtml, ladderRungs, ladderHtml,
-        marginMigrationHtml } = require('../docs/js/render.js');
+        marginMigrationHtml, fmtPct } = require('../docs/js/render.js');
 const { simulate } = require('../docs/js/engine.js');
 const { DEFAULT_INPUTS, CALIBRATION_TARGETS } = require('../docs/js/presets.js');
 
@@ -37,7 +37,26 @@ test('a demand-limited year is labelled demand, not whichever ceiling is lowest'
 
 test('clamped years are visibly marked, not hidden', () => {
   const fake = run.map((y, i) => ({ ...y, clamped: i === 1 }));
-  assert.ok(stateTableHtml(fake).includes('clamped'), 'a clamped run signals bad parameters');
+  assert.ok(stateTableHtml(fake).includes('clamped'), 'a clamped year must be visibly marked');
+});
+
+// I7 fix (final review): `clamped` is NOT a fixture-only case -- at
+// DEFAULT_INPUTS/seed 12345, 2029's nextPrice hits floorCost (11.00 = 11.00)
+// exactly. A comment near the diffusionBound test below used to claim
+// clamped "genuinely never fires at defaults," which was false and, worse,
+// the marker's own title text called it a sign "parameters are likely
+// wrong" -- but hitting the arbitrage floor is the model's stability defence
+// #1 engaging, the same kind of legitimate finding the header calls 2029 GW
+// and 2028 lab share. This tests the REAL run, not a synthetic fixture, and
+// pins the softened wording.
+test('clamped genuinely fires at DEFAULT_INPUTS (2029), and is not worded as an error', () => {
+  const clampedYears = run.filter(y => y.clamped);
+  assert.ok(clampedYears.length > 0, 'DEFAULT_INPUTS/seed 12345 should have a clamped year (2029)');
+  assert.ok(clampedYears.some(y => y.year === 2029), `expected 2029 to be clamped, got ${clampedYears.map(y => y.year)}`);
+  const html = stateTableHtml(run);
+  assert.ok(html.includes('clamped'), 'the real clamped year must be visibly marked');
+  assert.ok(!/parameters are likely wrong/.test(html),
+    'hitting the arbitrage floor is the stability defence working, not necessarily a parameter error');
 });
 
 test('calibration rows compute deviation against every target', () => {
@@ -48,6 +67,50 @@ test('calibration rows compute deviation against every target', () => {
     assert.ok(Number.isFinite(r.deviation), `${r.id} deviation not finite`);
     assert.equal(typeof r.pass, 'boolean');
   }
+});
+
+// I4 fix (final review): presence/finiteness checks like the one above cannot
+// catch an inverted SIGN -- inverting deviation to (target - actual) / target
+// made 2029 read +76.1% ("the model overshoots Dylan") when the model
+// actually undershoots by that much. Pin both the sign and the formula.
+test('calibration deviation sign is (actual - target) / target, not inverted', () => {
+  const rows = calibrationRows(run, CALIBRATION_TARGETS);
+  const gw2029 = rows.find(r => r.id === 'gw2029');
+  assert.ok(gw2029.actual < gw2029.target, 'sanity check: 2029 undershoots at DEFAULT_INPUTS');
+  assert.ok(gw2029.deviation < 0,
+    `the model undershoots 2029, so deviation must be NEGATIVE, got ${gw2029.deviation}`);
+  const expected = (gw2029.actual - gw2029.target) / gw2029.target;
+  assert.ok(Math.abs(gw2029.deviation - expected) < 1e-9,
+    `deviation ${gw2029.deviation} != (actual - target) / target = ${expected}`);
+});
+
+// I4 fix (final review): reads each target's `actual` against the field the
+// calibration target is actually documented to mean (targetActual's switch
+// in render.js), reconstructed independently here so a swapped case (e.g.
+// capex2028 silently reading cumulativeCapex instead of capex) is caught.
+test('every calibration row reads its documented field, not a swapped one', () => {
+  const rows = calibrationRows(run, CALIBRATION_TARGETS);
+  const y = Object.fromEntries(run.map(yy => [yy.year, yy]));
+  const expectedField = {
+    gw2026: y[2026].newGw, gw2027: y[2027].newGw, gw2028: y[2028].newGw, gw2029: y[2029].newGw,
+    cumGw2028: y[2028].cumulativeGw,
+    capex2028: y[2028].capex,
+    capexPerGw2026: y[2026].capexPerGw, capexPerGw2028: y[2028].capexPerGw,
+    price2028: y[2028].computePrice,
+    cumCapex2029: y[2029].cumulativeCapex,
+    cumCredit2029: y[2029].cumulativeCredit,
+    labShare2028: y[2028].labShareOfNew,
+  };
+  for (const r of rows) {
+    assert.equal(r.actual, expectedField[r.id], `${r.id}: actual reads the wrong field`);
+  }
+});
+
+// I4 fix (final review): fmtPct dropping its ×100 rendered 52% as "1%"
+// (0.52.toFixed(0) rounds to "1").
+test('fmtPct multiplies by 100 before formatting', () => {
+  assert.equal(fmtPct(0.52), '52%');
+  assert.notEqual(fmtPct(0.52), '1%');
 });
 
 test('calibration output declares each target units basis', () => {
@@ -101,6 +164,22 @@ test('ladder rungs ascend from cost to end-user, every simulated year', () => {
   }
 });
 
+// I4 fix (final review): normalising sparklines to the LAST year instead of
+// the FIRST inverts every one of them (a rail that got 4x more expensive
+// would read as if it fell to a quarter of its start). Pin the direction.
+test('margin sparkline normalises to the FIRST year, not the last', () => {
+  const fake = run.map(y => ({ ...y, railPrice: { ...y.railPrice } }));
+  fake[0].railPrice.servers = 10;
+  fake[fake.length - 1].railPrice.servers = 40;
+  const html = marginMigrationHtml(fake);
+  assert.ok(html.includes('4.00x'),
+    'the final ratio must be measured against the FIRST year (10), giving 40/10 = 4.00x');
+  assert.ok(html.includes(`${fake[0].year}: 1.00x`),
+    'the first year must read 1.00x against itself when normalised to the first year');
+  assert.ok(!html.includes(`${fake[0].year}: 0.25x`),
+    'the first year reading 0.25x (10/40) would mean normalisation used the LAST year instead');
+});
+
 test('renderers emit strings and never throw on a real run', () => {
   for (const fn of [() => stateTableHtml(run), () => ladderHtml(run[0]),
                     () => marginMigrationHtml(run), () => calibrationHtml(run, CALIBRATION_TARGETS)]) {
@@ -117,8 +196,9 @@ test('renderers emit strings and never throw on a real run', () => {
 // Fix round 3 (Task 11): fix rounds 1-2 (corrected captureRate, then the
 // priceDamp smooth-tail fix) mean DEFAULT_INPUTS/seed 12345 now genuinely
 // binds the diffusion ceiling in 2027-2029 -- this no longer needs a faked
-// field to exercise (unlike `clamped`, which genuinely never fires at
-// defaults and is left as a fixture-based test).
+// field to exercise. (I7 fix, final review: `clamped` ALSO genuinely fires
+// at defaults, in 2029 -- see the dedicated test above. An earlier version of
+// this comment claimed the opposite.)
 test('diffusionBound is surfaced as a visible marker on the affected year', () => {
   const boundYears = run.filter(y => y.diffusionBound);
   assert.ok(boundYears.length > 0, 'DEFAULT_INPUTS should bind the diffusion ceiling in at least one real year');
