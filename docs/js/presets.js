@@ -67,15 +67,25 @@ const DEFAULT_INPUTS = {
   // capital
   baseRate: 0.055,                // Meta raises at 5-6%
   // Task 9 calibration: creditMarketDepth 1400 -> 3800, ecosystemCashFlow 700
-  // -> 2300. The corrected stepRails default (system tightness applied to
-  // every unceilinged rail, not just memory/package/power) makes capexPerGw
-  // rise much faster once the market is scarce. At the old capital levels
-  // that made the "capital" ceiling crash to <60 GW by 2029 well before
-  // memory's own ceiling (~92 GW) would have bound instead -- a genuine
-  // capital-vs-supply race the model didn't have before. Raised both so
-  // memory, not a capital crunch, is what limits 2029 growth.
-  creditMarketDepth: 3800,        // $B/yr of absorbable AI credit issuance
-  ecosystemCashFlow: 2300,        // $B/yr fundable from operations
+  // -> 2300, to keep "capital" from crashing below memory's own ceiling.
+  //
+  // Fix round 1: raised further to 8000 / lowered to 1200. Once stepBullwhip
+  // (engine.js) makes memory/power/package respond to price, capexPerGw
+  // stops compounding without bound (see PIPELINE_GROWTH comment) -- but it
+  // still roughly doubles by 2029, and capital ($ available / capexPerGw)
+  // has to clear whatever the tightest physical pipeline delivers in every
+  // year through 2030, including the year the bullwhip's lagged response is
+  // still catching up. ecosystemCashFlow could not be pulled all the way
+  // back to the requested ~700-1000 without "capital" becoming the binding
+  // constraint and reproducing the same runaway through the system-tightness
+  // rails (network/dcElec/cooling/shell/vendorMargin/logic) that don't have a
+  // ceiling of their own -- see the fix-round report for the numbers. 1200 is
+  // the lowest value that held across the full acceptance suite; 8000 for
+  // creditMarketDepth is aggressive (this is genuinely deep, liquid credit
+  // markets, per the coordinator's own framing) but not implausible on the
+  // same basis.
+  creditMarketDepth: 8000,        // $B/yr of absorbable AI credit issuance
+  ecosystemCashFlow: 1200,        // $B/yr fundable from operations
   reinvestRate: 0.9,
   // monetization
   labRevPerMw0: 50,               // $M/MW, Anthropic peak today
