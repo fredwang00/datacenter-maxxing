@@ -1,0 +1,195 @@
+// Panel renderers. These consume the engine's year-state array and produce
+// HTML strings. No arithmetic beyond formatting and presentation ratios --
+// the one deliberate exception is the calibration panel's use of
+// impliedCreditDepthFor (see explainGwMiss below), which is the engine's own
+// designated diagnostic for exactly this purpose, not renderer-invented math.
+
+(function (root, factory) {
+  const rails = (typeof require !== 'undefined') ? require('./rails.js') : root;
+  const engine = (typeof require !== 'undefined') ? require('./engine.js') : root;
+  const presets = (typeof require !== 'undefined') ? require('./presets.js') : root;
+  const api = factory(rails, engine, presets);
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else Object.assign(root, api);
+})(typeof self !== 'undefined' ? self : this, function (rails, engine, presets) {
+
+const { RAILS } = rails;
+const { impliedCreditDepthFor } = engine;
+const { DEFAULT_INPUTS } = presets;
+
+function fmtB(n) {
+  if (!Number.isFinite(n)) return '—';
+  if (Math.abs(n) >= 1000) return '$' + (n / 1000).toFixed(1) + 'T';
+  return '$' + n.toFixed(1) + 'B';
+}
+function fmtPct(n) { return Number.isFinite(n) ? (n * 100).toFixed(0) + '%' : '—'; }
+function fmtGw(n) { return Number.isFinite(n) ? n.toFixed(1) : '—'; }
+
+function stateTableHtml(run) {
+  const head = ['Year', 'Demand', 'EUV', 'Memory', 'Pkg', 'Power', 'Capital', 'Binding',
+    'Price', '$B/GW', 'Credit', 'Rate', 'Lab GW', 'Hoarder Got', 'Lab $/MW']
+    .map(h => `<th>${h}</th>`).join('');
+  const rows = run.map(y => {
+    const ceilings = y.ceilings || {};
+    const labRevCell = Number.isFinite(y.labRevPerMw)
+      ? '$' + y.labRevPerMw.toFixed(0) + 'M' + (y.diffusionBound
+          ? ' <span class="warn diffusion-bound" title="lab revenue hit the ceiling of what the economy can absorb this year">diffusion-bound</span>'
+          : '')
+      : '—';
+    const cells = [
+      y.year, fmtGw(y.demand), fmtGw(ceilings.euv), fmtGw(ceilings.memory),
+      fmtGw(ceilings.package), fmtGw(ceilings.power), fmtGw(ceilings.capital),
+      y.binding ? `<span class="binding binding-${y.binding}">${y.binding}</span>` : '—',
+      Number.isFinite(y.computePrice) ? '$' + y.computePrice.toFixed(0) + 'M' : '—',
+      Number.isFinite(y.capexPerGw) ? y.capexPerGw.toFixed(1) : '—',
+      fmtB(y.credit),
+      Number.isFinite(y.rate) ? (y.rate * 100).toFixed(1) + '%' : '—',
+      fmtGw(y.labGw), fmtGw(y.hoarderGot), labRevCell,
+    ];
+    const mark = y.clamped ? ' <span class="warn" title="a clamp bound — parameters are likely wrong">clamped</span>' : '';
+    const rowClass = [y.clamped ? 'row-clamped' : '', y.diffusionBound ? 'row-diffusion-bound' : '']
+      .filter(Boolean).join(' ');
+    return `<tr class="${rowClass}">` +
+           cells.map((c, i) => `<td>${c}${i === 0 ? mark : ''}</td>`).join('') + '</tr>';
+  }).join('');
+  return `<table class="state-table"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function targetActual(run, target) {
+  const y = run.find(r => r.year === target.year);
+  if (!y) return NaN;
+  switch (target.id) {
+    case 'gw2026': case 'gw2027': case 'gw2028': case 'gw2029': return y.newGw;
+    case 'cumGw2028': return y.cumulativeGw;
+    case 'capex2028': return y.capex;
+    case 'capexPerGw2026': case 'capexPerGw2028': return y.capexPerGw;
+    case 'price2028': return y.computePrice;
+    case 'cumCapex2029': return y.cumulativeCapex;
+    case 'cumCredit2029': return y.cumulativeCredit;
+    case 'labShare2028': return y.labShareOfNew;
+    default: return NaN;
+  }
+}
+
+// Only these targets are denominated in a single year's newGw -- the only
+// shape impliedCreditDepthFor solves for. Matches targetActual's cases above.
+const NEW_GW_TARGET_IDS = new Set(['gw2026', 'gw2027', 'gw2028', 'gw2029']);
+
+// The calibration panel's most important row: WHY a GW target misses, not
+// just that it does (the 2029/95 target is a deliberate miss -- capital
+// binds at 59.4 GW). impliedCreditDepthFor is the engine's own designated
+// diagnostic for this (see its header comment in engine.js): it reports
+// either the credit depth that would clear the target, or -- when a
+// PHYSICAL rail caps the outcome regardless of credit -- which rail and how
+// far it caps out. Wrapped defensively: an explanatory aside must never take
+// down the calibration panel.
+function explainGwMiss(target, inputs) {
+  try {
+    const result = impliedCreditDepthFor(target.target, target.year, inputs);
+    if (result.reachable) {
+      return `reachable at ${fmtB(result.creditMarketDepth)}/yr credit depth (then ${result.limitingRail}-bound)`;
+    }
+    return `unreachable — ${result.limitingRail}-bound at ${fmtGw(result.maxGw)} GW regardless of credit depth`;
+  } catch (e) {
+    return null;
+  }
+}
+
+function calibrationRows(run, targets, inputs = DEFAULT_INPUTS) {
+  return targets.map(t => {
+    const actual = targetActual(run, t);
+    const deviation = Number.isFinite(actual) && t.target !== 0
+      ? (actual - t.target) / t.target : NaN;
+    const pass = Number.isFinite(deviation) && Math.abs(deviation) <= t.tolerance;
+    const explanation = (!pass && NEW_GW_TARGET_IDS.has(t.id)) ? explainGwMiss(t, inputs) : null;
+    return { ...t, actual, deviation, pass, explanation };
+  });
+}
+
+function calibrationHtml(run, targets, inputs = DEFAULT_INPUTS) {
+  const rows = calibrationRows(run, targets, inputs).map(r => `
+    <tr class="${r.pass ? 'cal-pass' : 'cal-fail'}">
+      <td>${r.label}</td>
+      <td class="cal-source">${r.source}</td>
+      <td class="cal-basis" title="units basis">${r.basis}</td>
+      <td>${Number.isFinite(r.target) ? r.target : '—'}</td>
+      <td>${Number.isFinite(r.actual) ? r.actual.toFixed(1) : '—'}</td>
+      <td>${Number.isFinite(r.deviation) ? (r.deviation * 100).toFixed(1) + '%' : '—'}</td>
+      <td class="cal-explain">${r.explanation ? r.explanation : '—'}</td>
+    </tr>`).join('');
+  return `<table class="calibration-table"><thead><tr>
+    <th>Target</th><th>Source</th><th>Basis</th><th>Stated</th><th>Model</th><th>Δ</th><th>Explain</th>
+  </tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+// $M/MW rungs, in a fixed, meaningful order: cost to build/operate < what a
+// commodity renter pays < what a scarcity-driven hoarder captures < what a
+// lab earns per MW < the marginal rate the single best end-user pays.
+//
+// This order is NOT enforced by construction -- there is no sort here. It is
+// a claim about the model, and the "ladder rungs ascend" test checks it for
+// real. Verified across all five simulated years at DEFAULT_INPUTS/seed
+// 12345 ($M/MW):
+//   2026   9.1 < 13.0 <  28.6 <  49.2 < 196.8
+//   2027   9.7 < 15.9 <  34.9 <  55.4 < 221.6
+//   2028  11.6 < 25.9 <  57.1 <  76.6 < 306.4
+//   2029  15.7 < 46.0 < 101.1 < 116.8 < 467.1
+//   2030  19.0 < 70.1 < 154.2 < 168.6 < 674.5
+// The scarcity-to-lab gap is not comfortable margin: relative to the lab
+// rung it narrows to ~13% by 2029 and ~9% by 2030. A different slider
+// combination could plausibly invert it -- at which point this test should,
+// and will, legitimately fail.
+//
+// The top rung (end-user capture) is DISPLAY ONLY -- Jane Street's
+// $200-500M/MW is a marginal rate measured on the best user in the world and
+// does not scale to a gigawatt. It must never feed a calculation.
+function ladderRungs(y) {
+  const ownCost = (y.capexPerGw / 5) + 1.5;   // 5yr amortization + power and opex
+  return [
+    { id: 'cost',     label: 'Cost to own + operate', value: ownCost,          scales: true,  warn: '' },
+    { id: 'rental',   label: 'Commodity rental',      value: y.computePrice,   scales: true,  warn: '' },
+    { id: 'scarcity', label: 'Scarcity / hoarder',    value: y.computePrice * 2.2, scales: true, warn: '' },
+    { id: 'lab',      label: 'Lab revenue',           value: y.labRevPerMw,    scales: true,  warn: '' },
+    { id: 'enduser',  label: 'End-user capture',      value: y.labRevPerMw * 4, scales: false,
+      warn: 'Marginal rate on the best user in the world. Does not scale to a gigawatt.' },
+  ];
+}
+
+function fmtRungValue(v) {
+  return Number.isFinite(v) ? '$' + v.toFixed(0) + 'M/MW' : '—';
+}
+
+function ladderHtml(y) {
+  const rungs = ladderRungs(y);
+  const finiteMax = Math.max(...rungs.map(r => r.value).filter(Number.isFinite));
+  const max = Number.isFinite(finiteMax) && finiteMax > 0 ? finiteMax : 1;
+  return '<div class="ladder">' + rungs.map(r => {
+    const width = Number.isFinite(r.value) ? Math.max(0, (r.value / max) * 100) : 0;
+    return `
+    <div class="ladder-rung ${r.scales ? '' : 'rung-nonscaling'}" ${r.warn ? `title="${r.warn}"` : ''}>
+      <span class="rung-label">${r.label}</span>
+      <div class="rung-track"><div class="rung-fill" style="width:${width}%"></div></div>
+      <span class="rung-value">${fmtRungValue(r.value)}</span>
+      ${r.warn ? `<span class="rung-warn">⚠ does not scale</span>` : ''}
+    </div>`;
+  }).join('') + '</div>';
+}
+
+function marginMigrationHtml(run) {
+  const tracked = RAILS.filter(r => r.parent === null || r.parent === 'servers');
+  return '<div class="margin-grid">' + tracked.map(rail => {
+    const series = run.map(y => y.railPrice[rail.id] / run[0].railPrice[rail.id]);
+    const max = Math.max(...series, 1.01);
+    const bars = series.map((v, i) =>
+      `<div class="spark-bar" style="height:${(v / max) * 100}%" title="${run[i].year}: ${v.toFixed(2)}x"></div>`).join('');
+    return `<div class="margin-cell">
+      <div class="margin-name" title="${rail.provenance}">${rail.label}</div>
+      <div class="sparkline">${bars}</div>
+      <div class="margin-delta">${series[series.length - 1].toFixed(2)}x</div>
+    </div>`;
+  }).join('') + '</div>';
+}
+
+return { fmtB, fmtPct, fmtGw, stateTableHtml, calibrationRows, calibrationHtml,
+         ladderRungs, ladderHtml, marginMigrationHtml };
+});
