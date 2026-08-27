@@ -10,7 +10,7 @@
 })(typeof self !== 'undefined' ? self : this, function (rails, presets) {
 
 const { RAILS, railById, initialRailPrice, sumPerGw, newStepState, railTightness } = rails;
-const { clamp } = rails;
+const { clamp, repriceContinuous, repriceStep, MEMORY_RESET_INTERVAL } = rails;
 const { euvCeilingGw, euvToolsPerGwFromWafers } = presets;
 
 const START_YEAR = 2026;
@@ -277,6 +277,102 @@ function stepMonetization(state, inputs, rng) {
   return { labRevPerMw, capability, inferenceShare, captureRate, wtpFraction, diffusionBound };
 }
 
+// Repriced per year against DEMAND vs a per-rail CEILING. Only memory, package
+// and power have component-specific ceilings (see computeCeilings); every
+// other rail defaults to the system-wide supplyGw so it still reprices on
+// overall market tightness, scaled by its own elasticity, rather than sitting
+// inert at a demandGw/demandGw === 1 ceiling that can never bind.
+function stepRails(state, inputs, demandGw, ceilings, supplyGw) {
+  const railPrice = { ...state.railPrice };
+  const tightness = {};
+  for (const r of RAILS) {
+    const ceiling = ceilings[r.id] !== undefined ? ceilings[r.id] : supplyGw;
+    const t = railTightness(demandGw, ceiling);
+    tightness[r.id] = t;
+    if (r.elasticity === 'step') {
+      railPrice[r.id] = repriceStep(railPrice[r.id], t, state.stepStates[r.id], MEMORY_RESET_INTERVAL);
+    } else {
+      railPrice[r.id] = repriceContinuous(railPrice[r.id], r.elasticity, t);
+    }
+  }
+  // Children must always reconcile to their parent.
+  const kids = RAILS.filter(r => r.parent === 'servers');
+  railPrice.servers = kids.reduce((a, r) => a + railPrice[r.id], 0);
+  return { railPrice, capexPerGw: sumPerGw(railPrice), tightness };
+}
+
+function simulate(inputs, seed) {
+  const rng = makeRng(seed === undefined ? 1 : seed);
+  const state = initialState(inputs);
+  const out = [];
+
+  for (let year = START_YEAR; year <= END_YEAR; year++) {
+    const ceilings = computeCeilings(state, inputs, year);
+    const supplyGw = Math.min(...Object.values(ceilings));
+    const binding = bindingConstraint(ceilings);
+
+    const demand = computeDemand(state, inputs, year);
+    const nextPrice = clearPrice(state, inputs, demand.total, supplyGw);
+    const alloc = allocate(state, inputs, demand, supplyGw);
+
+    const railStep = stepRails(state, inputs, demand.total, ceilings, supplyGw);
+    const capex = alloc.newGw * railStep.capexPerGw;
+    const cap = stepCapital(state, inputs, capex);
+    const mon = stepMonetization(state, inputs, rng);
+
+    const clamped = supplyGw <= 0 || nextPrice <= inputs.floorCost;
+
+    state.computePrice = nextPrice;
+    state.installedGw += alloc.newGw;
+    state.effectiveGw += alloc.newGw * (1 + 0.35 * (year - START_YEAR));
+    state.labGw += alloc.labGain;
+    state.hoardedStock = alloc.hoardedStockAfter;
+    state.railPrice = railStep.railPrice;
+    state.capexPerGw = railStep.capexPerGw;
+    state.cumulativeCredit = cap.cumulativeCredit;
+    state.cumulativeCapex = cap.cumulativeCapex;
+    state.rate = cap.rate;
+    state.availableCapital = cap.availableCapital;
+    state.labRevPerMw = mon.labRevPerMw;
+    state.capability = mon.capability;
+    state.inferenceShare = mon.inferenceShare;
+    state.captureRate = mon.captureRate;
+    state.wtpFraction = mon.wtpFraction;
+
+    out.push({
+      year, binding, supplyGw, clamped,
+      demand: demand.total,
+      demandBreakdown: { ...demand },
+      ceilings: { ...ceilings },
+      newGw: alloc.newGw,
+      hoarderGot: alloc.hoarderGot,
+      cumulativeGw: state.installedGw,
+      // Labs' share of capacity AVAILABLE FOR SALE (new build net of the
+      // hoarder's own take, plus released hoarded inventory) -- NOT of
+      // newly-built capacity. The model pools new build and released
+      // inventory into one market, so `forSale` is the only denominator that
+      // stays in [0,1] by construction; dividing by newGw alone lets the
+      // ratio exceed 1.0 whenever the hoard releases materially.
+      labShareOfNew: alloc.forSale > 0 ? alloc.labGain / alloc.forSale : 0,
+      computePrice: state.computePrice,
+      capexPerGw: state.capexPerGw,
+      capex,
+      credit: cap.credit,
+      cumulativeCapex: state.cumulativeCapex,
+      cumulativeCredit: state.cumulativeCredit,
+      rate: state.rate,
+      labGw: state.labGw,
+      labRevPerMw: state.labRevPerMw,
+      effectiveGw: state.effectiveGw,
+      hoardedStock: state.hoardedStock,
+      diffusionBound: mon.diffusionBound,
+      railPrice: { ...railStep.railPrice },
+      railTightness: { ...railStep.tightness },
+    });
+  }
+  return out;
+}
+
 return {
   START_YEAR, END_YEAR, POWER_MODES, PIPELINE_BASE, PIPELINE_GROWTH,
   initialState, seedPipelines, computeCeilings, bindingConstraint, pipelineCapacity,
@@ -284,5 +380,6 @@ return {
   labShare, hoarderRelease, allocate, LAB_SHARE_SATURATION_RANGE,
   termPremium, creditCapacity, stepCapital,
   makeRng, diffusionCeiling, regStopFactor, stepMonetization,
+  stepRails, simulate,
 };
 });
