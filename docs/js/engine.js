@@ -29,8 +29,17 @@ const POWER_MODES = {
 // Baseline pipeline capacity per rail, before bullwhip expansion, discounted
 // for announcement-to-delivery attrition (only ~13% of announced interconnection
 // queue capacity ever reaches commercial operation).
-const PIPELINE_BASE = { memory: 34, package: 38, power: 33 };
-const PIPELINE_GROWTH = { memory: 0.42, package: 0.40, power: 0.34 };
+//
+// Task 9 calibration (engine-acceptance.test.js): power.base/growth and
+// memory.growth were retuned from their Task 4 seed values (33/0.34 and 0.42)
+// after wiring stepRails to default an unceilinged rail's tightness to
+// supplyGw instead of demandGw (see stepRails). That fix makes power the
+// binding constraint through 2027 and lets memory's HBM step-reset take over
+// as the binding constraint from 2028 -- its own ceiling comfortably clears
+// the (off-limits) EUV ceiling (~94.3 GW in 2029) while still tracking the
+// 30/50/70/95 transcript path within tolerance.
+const PIPELINE_BASE = { memory: 34, package: 38, power: 30 };
+const PIPELINE_GROWTH = { memory: 0.395, package: 0.40, power: 0.60 };
 
 function seedPipelines(state, inputs) {
   for (const railId of Object.keys(PIPELINE_BASE)) {
@@ -153,11 +162,12 @@ const HOARDER_INTERNAL_VALUE = 20;   // $M/MW Meta/SpaceX get from using it them
 const HOARDER_RELEASE_MAX = 0.6;     // fraction of stock releasable in one year
 
 // Ratio range over which lab share ramps from 0 to 1: labShare saturates at
-// labWtp = 4x price (ratio - 1 spans this many units before hitting the 1.0
-// clamp). This is a calibration lever -- currently the tightest constraint on
-// hitting the 70-80% 2028 lab-share target (Task 9). Shrinking it makes labs
-// saturate at a narrower WTP/price gap.
-const LAB_SHARE_SATURATION_RANGE = 3;
+// labWtp = (1 + RANGE)x price (ratio - 1 spans this many units before hitting
+// the 1.0 clamp). This is a calibration lever -- Task 9 shrank it from 3 to
+// 1.5, the tightest constraint on hitting the 60-90% 2028 lab-share
+// acceptance target, since labs' WTP/price ratio at defaults (~2.4-3x by
+// 2028) never reached the wider range's saturation floor.
+const LAB_SHARE_SATURATION_RANGE = 1.5;
 
 // Labs outbid everyone when their willingness-to-pay clears the market price.
 function labShare(labWtp, price) {
