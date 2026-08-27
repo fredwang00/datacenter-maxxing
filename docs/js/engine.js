@@ -481,6 +481,41 @@ function impliedCreditDepthFor(targetGw, year, inputs, seed) {
   return { reachable: true, creditMarketDepth: hi, limitingRail: yearStateAt(hi).binding };
 }
 
+// Historical validation: 2023 memory was loose and earning nothing on HBM;
+// by 2026 memory margin (SK hynix 76% OP) had overtaken foundry (TSMC 67.7%).
+// If the elasticities cannot reproduce a shift that already happened, they are
+// wrong. This is a free validation set.
+const HISTORICAL_START = {
+  year: 2023,
+  memoryPrice: 1.4, logicPrice: 1.1,
+  memoryCost: 1.3, logicCost: 0.42,      // memory near breakeven, foundry fat
+  tightness: { 2023: { memory: 0.7, logic: 1.2 },
+               2024: { memory: 1.6, logic: 1.2 },
+               2025: { memory: 2.6, logic: 1.2 },
+               2026: { memory: 3.0, logic: 1.2 } },
+};
+
+function backtest() {
+  const memoryRail = railById('memory');
+  const logicRail = railById('logic');
+  let memoryPrice = HISTORICAL_START.memoryPrice;
+  let logicPrice = HISTORICAL_START.logicPrice;
+  const stepState = newStepState();
+  const out = [];
+
+  for (let year = 2023; year <= 2026; year++) {
+    const t = HISTORICAL_START.tightness[year];
+    memoryPrice = repriceStep(memoryPrice, t.memory, stepState, MEMORY_RESET_INTERVAL);
+    logicPrice = repriceContinuous(logicPrice, logicRail.elasticity, t.logic);
+    out.push({
+      year,
+      memoryMargin: (memoryPrice - HISTORICAL_START.memoryCost) / memoryPrice,
+      logicMargin: (logicPrice - HISTORICAL_START.logicCost) / logicPrice,
+    });
+  }
+  return out;
+}
+
 return {
   START_YEAR, END_YEAR, POWER_MODES, PIPELINE_BASE, PIPELINE_GROWTH,
   initialState, seedPipelines, computeCeilings, bindingConstraint, physicalCeiling, pipelineCapacity,
@@ -489,5 +524,6 @@ return {
   termPremium, creditCapacity, stepCapital,
   makeRng, diffusionCeiling, regStopFactor, stepMonetization,
   stepRails, stepBullwhip, BULLWHIP_GAIN, simulate, impliedCreditDepthFor,
+  HISTORICAL_START, backtest,
 };
 });
