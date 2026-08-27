@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { simulate } = require('../docs/js/engine.js');
+const { simulate, impliedCreditDepthFor } = require('../docs/js/engine.js');
 const { RAILS } = require('../docs/js/rails.js');
 const { DEFAULT_INPUTS, CALIBRATION_TARGETS } = require('../docs/js/presets.js');
 
@@ -18,13 +18,54 @@ test('simulate returns 2026-2030 with no NaN', () => {
   }
 });
 
-test('ACCEPTANCE: GW path tracks 30/50/70/90-100 within 10%', () => {
-  const want = { 2026: 30, 2027: 50, 2028: 70, 2029: 95 };
+test('ACCEPTANCE: 2026-2028 GW path tracks 30/50/70 within 10%', () => {
+  const want = { 2026: 30, 2027: 50, 2028: 70 };
   for (const [year, target] of Object.entries(want)) {
     const got = byYear[year].newGw;
     const dev = Math.abs(got - target) / target;
     assert.ok(dev <= 0.10, `${year}: got ${got.toFixed(1)} GW vs ${target} (${(dev*100).toFixed(0)}% off)`);
   }
+});
+
+// Fix round 3 (Task 9): 2029 does NOT track the stated 95 GW path at a
+// plausible capital depth (fix round 2), and re-inflating capital to force a
+// fit would reintroduce fix round 1's mistake. This test's job is no longer
+// "assert the forecast is right" -- CALIBRATION_TARGETS still carries the 95
+// GW target and displays the deviation for exactly that reason -- it's
+// "assert we know WHY we miss." A miss is only acceptable when it's
+// EXPLAINED by a real constraint (capital or a physical rail) taking over,
+// not by some unrelated bug quietly capping growth.
+test('2029 misses the stated path, and the binding constraint explains why', () => {
+  const target = CALIBRATION_TARGETS.find(t => t.id === 'gw2029');
+  const y = byYear[2029];
+  const dev = Math.abs(y.newGw - target.target) / target.target;
+  const hitsTarget = dev <= target.tolerance;
+  const explainedMiss = y.binding === 'capital' || y.binding === 'memory';
+  assert.ok(hitsTarget || explainedMiss,
+    `2029: got ${y.newGw.toFixed(1)} GW vs ${target.target} (${(dev * 100).toFixed(0)}% off), bound on '${y.binding}' -- ` +
+    `a miss must be explained by capital or a physical rail, not an unrelated cap`);
+});
+
+// impliedCreditDepthFor is the model's answer to "how deep would credit
+// markets need to be for the stated path to be financeable" -- Task 11's
+// calibration panel should be able to render this directly rather than a
+// hand-written number in a report.
+test('impliedCreditDepthFor: 2029/95 GW is unreachable at ANY credit depth -- memory binds first', () => {
+  const result = impliedCreditDepthFor(95, 2029, DEFAULT_INPUTS);
+  assert.equal(result.reachable, false);
+  assert.equal(result.limitingRail, 'memory');
+  // Matches the coordinator's own sweep: credit-unconstrained 2029 tops out
+  // at ~86.3 GW once memory (not capital) is what limits growth.
+  assert.ok(Math.abs(result.maxGw - 86.3) < 0.5, `maxGw ${result.maxGw}`);
+});
+
+test('impliedCreditDepthFor: a target inside the physical ceiling IS reachable via credit alone', () => {
+  const result = impliedCreditDepthFor(80, 2029, DEFAULT_INPUTS);
+  assert.equal(result.reachable, true);
+  assert.ok(result.creditMarketDepth > 0 && Number.isFinite(result.creditMarketDepth));
+  // At DEFAULT_INPUTS.creditMarketDepth (2500), 2029 only reaches ~59.4 GW,
+  // so hitting 80 GW requires strictly more credit depth than the default.
+  assert.ok(result.creditMarketDepth > DEFAULT_INPUTS.creditMarketDepth);
 });
 
 test('ACCEPTANCE: compute price inflects 13 -> 25 -> 40', () => {

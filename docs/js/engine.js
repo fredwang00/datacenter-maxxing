@@ -439,6 +439,48 @@ function simulate(inputs, seed) {
   return out;
 }
 
+// Solves for the creditMarketDepth ($B/yr) that would make `year`'s newGw
+// reach `targetGw`, holding every other input fixed. This is the headline
+// calibration-panel output for Task 9's fix round 3: "target N GW in year Y
+// is unreachable / needs $D/yr of credit depth."
+//
+// Raising creditMarketDepth only ever relaxes the capital ceiling, so
+// realized newGw is monotonic non-decreasing in it -- UNTIL a PHYSICAL rail
+// (euv, memory, package, power) becomes the binding constraint instead, past
+// which more credit does nothing (see physicalCeiling()). When that physical
+// ceiling itself sits below targetGw, NO credit depth can reach the target.
+// That case is the interesting one and must be representable directly,
+// rather than as Infinity or a crash: this returns
+// `{ reachable: false, limitingRail, maxGw }` instead.
+function impliedCreditDepthFor(targetGw, year, inputs, seed) {
+  // Large enough that `capital` cannot possibly bind (creditCapacity grows
+  // with creditMarketDepth), so this pins down the ceiling the PHYSICAL
+  // rails alone allow in `year`.
+  const PRACTICALLY_UNLIMITED_CREDIT = 1e7;
+
+  function yearStateAt(creditMarketDepth) {
+    const run = simulate({ ...inputs, creditMarketDepth }, seed);
+    const y = run.find(r => r.year === year);
+    if (!y) throw new Error(`impliedCreditDepthFor: no year state for ${year}`);
+    return y;
+  }
+
+  const atUnlimitedCredit = yearStateAt(PRACTICALLY_UNLIMITED_CREDIT);
+  if (atUnlimitedCredit.newGw < targetGw) {
+    return { reachable: false, limitingRail: atUnlimitedCredit.binding, maxGw: atUnlimitedCredit.newGw };
+  }
+
+  // Bisect for the minimal creditMarketDepth that clears targetGw. 60
+  // iterations over [0, 1e7] resolves creditMarketDepth to well under a
+  // cent -- far finer than this estimate needs, but bisection is cheap.
+  let lo = 0, hi = PRACTICALLY_UNLIMITED_CREDIT;
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) / 2;
+    if (yearStateAt(mid).newGw >= targetGw) hi = mid; else lo = mid;
+  }
+  return { reachable: true, creditMarketDepth: hi, limitingRail: yearStateAt(hi).binding };
+}
+
 return {
   START_YEAR, END_YEAR, POWER_MODES, PIPELINE_BASE, PIPELINE_GROWTH,
   initialState, seedPipelines, computeCeilings, bindingConstraint, physicalCeiling, pipelineCapacity,
@@ -446,6 +488,6 @@ return {
   labShare, hoarderRelease, allocate, LAB_SHARE_SATURATION_RANGE,
   termPremium, creditCapacity, stepCapital,
   makeRng, diffusionCeiling, regStopFactor, stepMonetization,
-  stepRails, stepBullwhip, BULLWHIP_GAIN, simulate,
+  stepRails, stepBullwhip, BULLWHIP_GAIN, simulate, impliedCreditDepthFor,
 };
 });
