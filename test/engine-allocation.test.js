@@ -95,3 +95,134 @@ test('INVARIANT: newGw never exceeds supplyGw even while the hoard is releasing'
   assert.ok(Math.abs(r.newGw - supply) < 1e-9,
     'supply-constrained: newGw must equal supplyGw exactly');
 });
+
+// ---------------------------------------------------------------------------
+// MATRIX: full-contract coverage, {demand,supply}-constrained x
+// {released == 0, released > 0}.
+//
+// Everything above this line is kept for regression history, but every
+// balance assertion in it is an algebraic identity: forSale and
+// hoardedStockAfter are DEFINED in terms of hoarderGot and released, so an
+// equation built from those returned fields holds for any value allocate()
+// happens to produce. None of it independently pins hoarderGot, forSale,
+// labGain, or hoardedStockAfter to a number derived only from
+// (state, inputs, demand, supplyGw).
+//
+// The tests below close that gap. `expectedAllocation` is a reference
+// implementation of the contract, built only from the function's inputs
+// (never from another field of allocate's own return value). Every one of
+// allocate's six returned fields is checked against it, in all four cells
+// of the matrix, so a mutation has nowhere left to hide:
+//   - folding `released` into `newGw` before the clamp shows up as soon as
+//     demand is not the binding constraint (cells 1-2);
+//   - inflating `newGw` only on the supply-constrained branch shows up only
+//     when supply binds AND the hoard is releasing (cell 4) -- exactly the
+//     cell prior rounds never built;
+//   - scaling `hoarderGot` shows up in every cell (hoarderBuildGw > 0
+//     always here);
+//   - dividing hoarderShare by `newGw` (or `supplyGw`) instead of
+//     `demand.total` is invisible whenever newGw === demand.total, so it
+//     only surfaces in the supply-constrained cells (3-4).
+const HOARDER_INTERNAL_VALUE = 20;
+const HOARDER_RELEASE_MAX = 0.6;
+
+// Reference model of hoarderRelease, written independently of the function
+// under test (not a call-through) so a mutation to hoarderRelease itself
+// still shows up as a mismatch here.
+function expectedHoarderRelease(state, price) {
+  const spread = (price - HOARDER_INTERNAL_VALUE) / HOARDER_INTERNAL_VALUE;
+  const fraction = Math.min(1, Math.max(0, spread)) * HOARDER_RELEASE_MAX;
+  return Math.min(state.hoardedStock, state.hoardedStock * fraction);
+}
+
+// Reference model of labShare, same rationale.
+function expectedLabShare(labWtp, price) {
+  if (!(price > 0)) return 1;
+  const ratio = labWtp / price;
+  return Math.min(1, Math.max(0, (ratio - 1) / 3));
+}
+
+// Reference model of allocate's full contract, built only from
+// (state, inputs, demand, supplyGw) -- never from another returned field.
+function expectedAllocation(state, inputs, demand, supplyGw) {
+  const newGw = Math.min(demand.total, supplyGw);
+  const released = expectedHoarderRelease(state, state.computePrice);
+  const hoarderShare = demand.total > 0 ? inputs.hoarderBuildGw / demand.total : 0;
+  const hoarderGot = newGw * hoarderShare;
+  const forSale = (newGw - hoarderGot) + released;
+  const labGain = forSale * expectedLabShare(demand.labWtp, state.computePrice);
+  const hoardedStockAfter = state.hoardedStock - released + hoarderGot;
+  return { newGw, forSale, released, hoarderGot, labGain, hoardedStockAfter };
+}
+
+function assertMatchesContract(r, expected, state, label) {
+  const EPS = 1e-9;
+  for (const field of ['newGw', 'forSale', 'released', 'hoarderGot', 'labGain', 'hoardedStockAfter']) {
+    assert.ok(Math.abs(r[field] - expected[field]) < EPS,
+      `${label}: ${field} = ${r[field]}, expected ${expected[field]} (computed independently of allocate's own output)`);
+  }
+  // Restated directly from the contract. Redundant with the equalities
+  // above under a correct implementation, but pinned separately so a
+  // mutation that keeps the equality but breaks the bound (e.g. by also
+  // corrupting the reference formula's assumptions) cannot hide behind it.
+  assert.ok(r.hoarderGot <= r.newGw + EPS, `${label}: hoarderGot must never exceed newGw`);
+  assert.ok(r.released <= state.hoardedStock + EPS, `${label}: released must never exceed the stock on hand`);
+  assert.ok(r.labGain <= r.forSale + EPS, `${label}: labGain must never exceed forSale`);
+}
+
+test('MATRIX: demand-constrained, released == 0', () => {
+  const s = initialState(DEFAULT_INPUTS);           // computePrice = 13 <= HOARDER_INTERNAL_VALUE
+  s.hoardedStock = 10;
+  const d = computeDemand(s, DEFAULT_INPUTS, 2026);
+  const supplyGw = 5000;                            // far above demand.total (~26)
+  assert.ok(supplyGw > d.total, 'scenario must actually be demand-constrained');
+  const r = allocate(s, DEFAULT_INPUTS, d, supplyGw);
+  assert.strictEqual(r.released, 0, 'computePrice <= HOARDER_INTERNAL_VALUE must yield zero release');
+  assertMatchesContract(r, expectedAllocation(s, DEFAULT_INPUTS, d, supplyGw), s, 'demand-constrained/released=0');
+});
+
+test('MATRIX: demand-constrained, released > 0', () => {
+  const s = initialState(DEFAULT_INPUTS);
+  s.hoardedStock = 10;
+  s.computePrice = 45;                              // above HOARDER_INTERNAL_VALUE
+  const d = computeDemand(s, DEFAULT_INPUTS, 2026);
+  const supplyGw = 5000;                            // far above demand.total (~16 at this price)
+  assert.ok(supplyGw > d.total, 'scenario must actually be demand-constrained');
+  const r = allocate(s, DEFAULT_INPUTS, d, supplyGw);
+  assert.ok(r.released > 0, 'test is only meaningful when the hoard is releasing');
+  assertMatchesContract(r, expectedAllocation(s, DEFAULT_INPUTS, d, supplyGw), s, 'demand-constrained/released>0');
+});
+
+test('MATRIX: supply-constrained, released == 0', () => {
+  const s = initialState(DEFAULT_INPUTS);
+  s.hoardedStock = 10;
+  const d = computeDemand(s, DEFAULT_INPUTS, 2026);
+  const supplyGw = 5;                               // below demand.total (~26)
+  assert.ok(supplyGw < d.total, 'scenario must actually be supply-constrained');
+  const r = allocate(s, DEFAULT_INPUTS, d, supplyGw);
+  assert.strictEqual(r.released, 0, 'computePrice <= HOARDER_INTERNAL_VALUE must yield zero release');
+  assertMatchesContract(r, expectedAllocation(s, DEFAULT_INPUTS, d, supplyGw), s, 'supply-constrained/released=0');
+});
+
+test('MATRIX: supply-constrained, released > 0', () => {
+  const s = initialState(DEFAULT_INPUTS);
+  s.hoardedStock = 10;
+  s.computePrice = 45;
+  const d = computeDemand(s, DEFAULT_INPUTS, 2026);
+  const supplyGw = 5;                               // below demand.total (~16 at this price)
+  assert.ok(supplyGw < d.total, 'scenario must actually be supply-constrained');
+  const r = allocate(s, DEFAULT_INPUTS, d, supplyGw);
+  assert.ok(r.released > 0, 'test is only meaningful when the hoard is releasing');
+  assertMatchesContract(r, expectedAllocation(s, DEFAULT_INPUTS, d, supplyGw), s, 'supply-constrained/released>0');
+});
+
+// None of the four cells above ever drives labWtp/price above 4 (both price
+// settings, 13 and 45, sit close enough to labWtp=25 that the [0,1] clamp in
+// labShare never binds on the upper side), so a mutation that drops just the
+// upper bound would pass every test above undetected. Pin it directly.
+test('labShare stays bounded to [0, 1] even at an extreme WTP/price ratio', () => {
+  const extreme = labShare(100, 5);   // ratio = 20 -> unclamped (ratio-1)/3 = 6.33
+  assert.ok(Math.abs(extreme - expectedLabShare(100, 5)) < 1e-9,
+    `labShare(100, 5) = ${extreme}, expected ${expectedLabShare(100, 5)}`);
+  assert.ok(extreme <= 1.0 + 1e-9, 'labShare must never exceed 1');
+});
