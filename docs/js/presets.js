@@ -66,26 +66,28 @@ const DEFAULT_INPUTS = {
   floorCost: 11.0,                // $M/MW — "anyone can make money at $10-15"
   // capital
   baseRate: 0.055,                // Meta raises at 5-6%
-  // Task 9 calibration: creditMarketDepth 1400 -> 3800, ecosystemCashFlow 700
-  // -> 2300, to keep "capital" from crashing below memory's own ceiling.
-  //
-  // Fix round 1: raised further to 8000 / lowered to 1200. Once stepBullwhip
-  // (engine.js) makes memory/power/package respond to price, capexPerGw
-  // stops compounding without bound (see PIPELINE_GROWTH comment) -- but it
-  // still roughly doubles by 2029, and capital ($ available / capexPerGw)
-  // has to clear whatever the tightest physical pipeline delivers in every
-  // year through 2030, including the year the bullwhip's lagged response is
-  // still catching up. ecosystemCashFlow could not be pulled all the way
-  // back to the requested ~700-1000 without "capital" becoming the binding
-  // constraint and reproducing the same runaway through the system-tightness
-  // rails (network/dcElec/cooling/shell/vendorMargin/logic) that don't have a
-  // ceiling of their own -- see the fix-round report for the numbers. 1200 is
-  // the lowest value that held across the full acceptance suite; 8000 for
-  // creditMarketDepth is aggressive (this is genuinely deep, liquid credit
-  // markets, per the coordinator's own framing) but not implausible on the
-  // same basis.
-  creditMarketDepth: 8000,        // $B/yr of absorbable AI credit issuance
-  ecosystemCashFlow: 1200,        // $B/yr fundable from operations
+  // Task 9 / fix round 1 pushed these to creditMarketDepth 8000 and
+  // ecosystemCashFlow 1200 to keep "capital" from ever binding -- which was
+  // masking a modeling bug (fix round 1's capital ceiling fed the rail
+  // REPRICING signal, so a credit crunch spuriously repriced HBM/CoWoS/power
+  // as if they were physically scarce; see physicalCeiling() in engine.js,
+  // which now excludes capital from that signal). With the bug fixed, these
+  // no longer need to be implausible, and 8000 never was defensible (total US
+  // investment-grade corporate bond issuance is ~$1.5T/yr for the WHOLE
+  // economy). Reset to plausible bases:
+  //   ecosystemCashFlow 1000: combined hyperscaler operating cash flow is
+  //     roughly $500-600B/yr today, plus chipmakers ~$150B/yr; 1000 already
+  //     assumes continued growth on top of that.
+  //   creditMarketDepth 2500: a large share of US investment-grade issuance
+  //     plus private credit and ABS specifically absorbable by AI
+  //     infrastructure. Already generous, not a hard ceiling on all credit.
+  // With capital repricing removed, `capital` DOES bind here (see the fix
+  // round 2 report) and pulls the GW path below the 30/50/70/95 target --
+  // left as-is rather than re-inflated to force the path green. That result
+  // is the finding: see the report for the creditMarketDepth Dylan's stated
+  // GW path would actually require.
+  creditMarketDepth: 2500,        // $B/yr of absorbable AI credit issuance
+  ecosystemCashFlow: 1000,        // $B/yr fundable from operations
   reinvestRate: 0.9,
   // monetization
   labRevPerMw0: 50,               // $M/MW, Anthropic peak today
