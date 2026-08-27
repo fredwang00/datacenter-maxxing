@@ -326,3 +326,33 @@ for (const hoarderBuildGw of [0, 10]) {
       `supply-constrained/released>0/hoarderBuildGw=${hoarderBuildGw}`);
   });
 }
+
+// RIDER: hoarderRelease boundary condition — initially hoardedStock: 0.
+// initialState sets hoardedStock: 0, so the simulation hits this on year one.
+// A mutation that returns a fabricated value (e.g., 3) when hoardedStock === 0
+// passed all 60 prior tests. Pinned separately at both low and high price.
+test('hoarderRelease returns exactly 0 when hoardedStock === 0, at low price', () => {
+  const s = initialState(DEFAULT_INPUTS);
+  assert.equal(s.hoardedStock, 0, 'initialState must start with hoardedStock = 0');
+  const price = 13;  // below HOARDER_INTERNAL_VALUE
+  const released = hoarderRelease(s, price);
+  assert.equal(released, 0, 'hoarderRelease must return exactly 0 when stock is 0');
+});
+
+test('hoarderRelease returns exactly 0 when hoardedStock === 0, at high price', () => {
+  const s = initialState(DEFAULT_INPUTS);
+  assert.equal(s.hoardedStock, 0, 'initialState must start with hoardedStock = 0');
+  const price = 200;  // far above HOARDER_INTERNAL_VALUE
+  const released = hoarderRelease(s, price);
+  assert.equal(released, 0, 'hoarderRelease must return exactly 0 when stock is 0, even at high price');
+});
+
+test('allocate at hoardedStock: 0 with high price confirms released === 0 and hoardedStockAfter === hoarderGot', () => {
+  const s = initialState(DEFAULT_INPUTS);
+  assert.equal(s.hoardedStock, 0, 'initialState must start with hoardedStock = 0');
+  s.computePrice = 200;  // far above HOARDER_INTERNAL_VALUE
+  const d = computeDemand(s, DEFAULT_INPUTS, 2026);
+  const r = allocate(s, DEFAULT_INPUTS, d, 5000);
+  assert.equal(r.released, 0, 'released must be 0 when hoardedStock is 0');
+  assert.equal(r.hoardedStockAfter, r.hoarderGot, 'hoardedStockAfter must equal hoarderGot when nothing is released');
+});
