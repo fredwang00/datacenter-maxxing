@@ -267,22 +267,29 @@ function allocate(state, inputs, demand, supplyGw) {
   return { newGw, forSale, released, hoarderGot, labGain, hoardedStockAfter };
 }
 
-// I6 (final review, UNRESOLVED -- see final-fix-report.md): TERM_PREMIUM_SLOPE
-// is applied to cumulativeCredit / creditMarketDepth below, dividing a STOCK
-// ($B borrowed to date) by a FLOW ($B/yr of absorbable issuance, documented
-// and used as a flow everywhere else, e.g. creditCapacity below) -- the same
-// bug class the units guard exists to catch on the perGw/annuity side, with
-// no equivalent guard here. Two corrected forms were tried (scale
-// creditMarketDepth by years-elapsed-since-START_YEAR; scale it by a fixed
-// 5-year horizon) and both correctly make the term premium shrink over the
-// simulated horizon relative to this -- but both also relax the 2030 capital
-// ceiling enough to push the year-over-year newGw swing test
-// (engine-acceptance.test.js's "known-limitation ceiling") to 60.1-60.7 GW
-// against its 60 GW bound: an acceptance test regression. Per instruction,
-// stopped and left uncorrected rather than deciding unilaterally whether to
-// widen that test's ceiling or pick a different scale. Left as the original
-// (buggy) calculation below pending that decision.
-const TERM_PREMIUM_SLOPE = 0.02;   // calibrated so ~$5T cumulative credit lifts Meta 5.5% -> ~8%
+// I6 (final review) -- RESOLVED as a naming defect, not a units bug. This was
+// first raised as "dividing a STOCK (cumulativeCredit, $B borrowed to date) by
+// a FLOW (creditMarketDepth, $B/yr of absorbable issuance)" -- the bug class
+// the units guard catches on the perGw/annuity side. On investigation that is
+// wrong: stock/flow yields TIME, and years is exactly the right dimension for
+// a leverage measure. `cumulativeCredit / creditMarketDepth` = years-of-market-
+// depth consumed, the same shape as debt/EBITDA or reserve-to-production.
+// TERM_PREMIUM_SLOPE then reads "+2pp of spread per year of depth consumed."
+// The argument is passed as `creditRatio` below, which is the misleading part
+// and the actual defect: it should be named for the duration it is.
+//
+// Both "corrected" forms were tried and neither is a fix. Scaling depth by a
+// fixed 5-year horizon is algebraically identical to TERM_PREMIUM_SLOPE x 1/5
+// (verified bit-identical to changing 0.02 -> 0.004 on every field, every
+// year) -- a 5x parameter cut wearing a units-fix costume. Scaling by
+// years-elapsed makes the premium FALL as leverage rises (2028->2029:
+// cumulativeCredit +$22B, rate -0.233pp), which is a genuine economic error;
+// the current form is monotone. Neither moves 2026-2029 newGw at all.
+const TERM_PREMIUM_SLOPE = 0.02;
+// Calibration anchor, corrected: the original comment claimed "~$5T cumulative
+// credit lifts Meta 5.5% -> ~8%". That is arithmetically wrong -- $5T against a
+// $2.5T/yr depth is 2.0 years consumed, so +4pp, landing at 9.50%. Reaching 8%
+// takes ~$3.13T. The slope is a fitted choice, not a sourced one.
 const RATE_MAX = 0.25;
 const CREDIT_RATION_SLOPE = 8;
 

@@ -124,10 +124,15 @@ test('simulate is called with a fixed seed of 12345 for reproducibility across r
   assert.ok(literalSeed || namedSeed, 'simulate must be called with a fixed seed of 12345 (literal or a SEED constant)');
 });
 
-test('calibrationHtml is called with an inputs argument so it can explain missed GW targets', () => {
+test('calibrationHtml is called with BOTH inputs and the display seed', () => {
   const inline = inlineScript();
-  assert.ok(/calibrationHtml\([^,]+,[^,]+,[^)]+\)/.test(inline),
-    'calibrationHtml must be called with (run, targets, inputs) so explainGwMiss can compute implied credit depth');
+  // Four arguments, not three. The seed is load-bearing: without it
+  // explainGwMiss falls back to makeRng(1) while the displayed run uses 12345,
+  // so the panel prints a model value beside an explanation drawn from a
+  // different draw (22.7 GW beside "23.1 GW"). A 3-argument regex passed the
+  // whole suite with `, SEED` deleted, which is how that defect survived.
+  assert.ok(/calibrationHtml\(\s*[^,()]+,\s*[^,()]+,\s*[^,()]+,\s*SEED\s*\)/.test(inline),
+    'calibrationHtml must be called with (run, targets, inputs, SEED) so explainGwMiss explains the SAME draw the page displays');
 });
 
 test('DEFAULT_INPUTS is never mutated directly', () => {
