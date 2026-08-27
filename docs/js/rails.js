@@ -112,6 +112,9 @@ function repriceStep(price, tightness, stepState, resetInterval) {
   return price;
 }
 
+const _railsApi = { PUE, RAILS, railById, topLevelPerGwIds, topLevelAnnuityIds, initialRailPrice, sumPerGw, clamp, railTightness, repriceContinuous, repriceStep, newStepState, TIGHTNESS_MIN, TIGHTNESS_MAX, STEP_GAIN, MEMORY_RESET_INTERVAL };
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { PUE, RAILS, railById, topLevelPerGwIds, topLevelAnnuityIds, initialRailPrice, sumPerGw, clamp, railTightness, repriceContinuous, repriceStep, newStepState, TIGHTNESS_MIN, TIGHTNESS_MAX, STEP_GAIN, MEMORY_RESET_INTERVAL };
+  module.exports = _railsApi;
+} else if (typeof self !== 'undefined') {
+  Object.assign(self, _railsApi);
 }

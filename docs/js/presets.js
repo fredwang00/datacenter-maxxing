@@ -88,10 +88,13 @@ const PRESETS = {
   'power-starved':     { powerMode: 'ccgt', hoarderBuildGw: 1 },
 };
 
+const _presetsApi = {
+  ASML_TOOLS_PER_YEAR, EUV_CUMULATIVE_END_2025, EUV_INSTALL_LAG_YEARS,
+  cumulativeEuvTools, euvCeilingGw, euvToolsPerGwFromWafers,
+  DEFAULT_INPUTS, CALIBRATION_TARGETS, PRESETS,
+};
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = {
-    ASML_TOOLS_PER_YEAR, EUV_CUMULATIVE_END_2025, EUV_INSTALL_LAG_YEARS,
-    cumulativeEuvTools, euvCeilingGw, euvToolsPerGwFromWafers,
-    DEFAULT_INPUTS, CALIBRATION_TARGETS, PRESETS,
-  };
+  module.exports = _presetsApi;
+} else if (typeof self !== 'undefined') {
+  Object.assign(self, _presetsApi);
 }

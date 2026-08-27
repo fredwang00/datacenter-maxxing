@@ -30,10 +30,23 @@ test('power mode changes both cost and lead time', () => {
   assert.ok(POWER_MODES.nuclear.leadYears > POWER_MODES.ccgt.leadYears);
 });
 
-test('initial state has no NaN or undefined fields', () => {
+// Recurses into nested plain objects (pipeline.memory[2028], railPrice.power,
+// stepStates.memory.pressure, ...) so a NaN or undefined buried below the
+// top level can't slip past Object.entries(s).
+function assertNoNaNOrUndefined(value, path) {
+  assert.notEqual(value, undefined, `${path} undefined`);
+  if (typeof value === 'number') {
+    assert.ok(Number.isFinite(value), `${path} is ${value}`);
+  } else if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+    for (const [k, v] of Object.entries(value)) {
+      assertNoNaNOrUndefined(v, `${path}.${k}`);
+    }
+  }
+}
+
+test('initial state has no NaN or undefined fields, including nested objects', () => {
   const s = initialState(DEFAULT_INPUTS);
   for (const [k, v] of Object.entries(s)) {
-    if (typeof v === 'number') assert.ok(Number.isFinite(v), `${k} is ${v}`);
-    assert.notEqual(v, undefined, `${k} undefined`);
+    assertNoNaNOrUndefined(v, k);
   }
 });
