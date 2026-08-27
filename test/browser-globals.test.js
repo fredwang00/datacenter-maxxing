@@ -24,8 +24,15 @@ function loadAsBrowserGlobals() {
   // No `require`, no `module`, no `exports`.
   context.self = context;
 
+  // ALL FIVE files, in the same order the HTML's <script src> tags load them.
+  // This list previously stopped at engine.js, so render.js's browser path was
+  // never exercised -- and when market-scenarios.js was added by the v2 port it
+  // inherited the same blind spot. Both must expose globals or the page renders
+  // nothing, and the failure mode is silent: top-level `const` in a classic
+  // script never becomes a property of the global object, so a missing
+  // browser branch in the export footer leaves the value simply undefined.
   const jsDir = path.join(__dirname, '..', 'docs', 'js');
-  for (const file of ['rails.js', 'presets.js', 'engine.js']) {
+  for (const file of ['rails.js', 'presets.js', 'engine.js', 'market-scenarios.js', 'render.js']) {
     const code = fs.readFileSync(path.join(jsDir, file), 'utf8');
     vm.runInContext(code, context, { filename: file });
   }
@@ -50,4 +57,46 @@ test('rails.js, presets.js, engine.js expose their APIs as browser globals with 
 
   const state = context.initialState(context.DEFAULT_INPUTS);
   assert.ok(Math.abs(state.capexPerGw - 38.2) < 0.01, `capexPerGw should be ~38.2, got ${state.capexPerGw}`);
+});
+
+test('market-scenarios.js and render.js also expose their APIs as browser globals', () => {
+  const context = loadAsBrowserGlobals();
+
+  // The v2 port's editorial data. render.js reads it, so if this is undefined
+  // the stock-sensitivity matrix renders empty in a browser while every Node
+  // test passes.
+  assert.equal(typeof context.MARKET_SCENARIOS, 'object', 'MARKET_SCENARIOS must be a global');
+  assert.equal(Object.keys(context.MARKET_SCENARIOS).length, 4, 'expected four market regimes');
+
+  // Every panel the page actually draws.
+  for (const fn of ['stateTableHtml', 'calibrationHtml', 'ladderHtml', 'marginMigrationHtml',
+                    'matrixHtml', 'labComparisonHtml', 'perGwEconomicsHtml',
+                    'bottleneckHtml', 'diffusionHtml']) {
+    assert.equal(typeof context[fn], 'function', `${fn} must be reachable as a browser global`);
+  }
+});
+
+test('a full run renders every panel through the browser-global path', () => {
+  const context = loadAsBrowserGlobals();
+  // Exercise the real call path a browser takes, not just the presence of the
+  // symbols: a renderer that throws on real data is as broken as a missing one.
+  const run = context.simulate(context.DEFAULT_INPUTS, 12345);
+  assert.ok(Array.isArray(run) && run.length === 5, 'simulate must work in the browser path');
+
+  const panels = {
+    stateTableHtml: () => context.stateTableHtml(run),
+    calibrationHtml: () => context.calibrationHtml(run, context.CALIBRATION_TARGETS, context.DEFAULT_INPUTS, 12345),
+    ladderHtml: () => context.ladderHtml(run[0]),
+    marginMigrationHtml: () => context.marginMigrationHtml(run),
+    matrixHtml: () => context.matrixHtml(run, context.MARKET_SCENARIOS),
+    labComparisonHtml: () => context.labComparisonHtml(run),
+    perGwEconomicsHtml: () => context.perGwEconomicsHtml(run[0]),
+    bottleneckHtml: () => context.bottleneckHtml(run[0]),
+    diffusionHtml: () => context.diffusionHtml(run),
+  };
+  for (const [name, call] of Object.entries(panels)) {
+    const html = call();
+    assert.equal(typeof html, 'string', `${name} must return a string in the browser path`);
+    assert.ok(html.length > 0, `${name} returned an empty string`);
+  }
 });
