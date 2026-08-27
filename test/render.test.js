@@ -68,10 +68,25 @@ test('renderers emit strings and never throw on a real run', () => {
 // CORRECTION 2: diffusionBound is the single most valuable model output --
 // lab revenue hitting the ceiling of what the economy can absorb -- and must
 // be a visible marker on the affected year, not buried in a raw number.
+//
+// Fix round 3 (Task 11): fix rounds 1-2 (corrected captureRate, then the
+// priceDamp smooth-tail fix) mean DEFAULT_INPUTS/seed 12345 now genuinely
+// binds the diffusion ceiling in 2027-2029 -- this no longer needs a faked
+// field to exercise (unlike `clamped`, which genuinely never fires at
+// defaults and is left as a fixture-based test).
 test('diffusionBound is surfaced as a visible marker on the affected year', () => {
-  const fake = run.map((y, i) => ({ ...y, diffusionBound: i === 2 }));
-  const html = stateTableHtml(fake);
+  const boundYears = run.filter(y => y.diffusionBound);
+  assert.ok(boundYears.length > 0, 'DEFAULT_INPUTS should bind the diffusion ceiling in at least one real year');
+  const html = stateTableHtml(run);
   assert.ok(html.includes('diffusion-bound'), 'a diffusion-bound year must be visibly flagged');
+});
+
+test('state table distinguishes the allocation price from the newly cleared price', () => {
+  // Fix round 3 (Task 11): allocate() runs on the PRIOR year's price, not the
+  // one emitted as computePrice -- an auditor reconciling labShareOfNew needs
+  // both, labeled, or they'll recompute against the wrong number.
+  const html = stateTableHtml(run);
+  assert.ok(/alloc price/i.test(html), 'the allocation price must be labeled distinctly from the newly cleared price');
 });
 
 test('state table surfaces hoarderGot per year', () => {
@@ -80,8 +95,14 @@ test('state table surfaces hoarderGot per year', () => {
 });
 
 // CORRECTION 3: the 2029 GW target (95) is a deliberate miss at DEFAULT_INPUTS
-// -- the model produces 59.4 GW because capital binds. The calibration panel
-// must explain why via impliedCreditDepthFor, not just flag red.
+// -- the calibration panel must explain why via impliedCreditDepthFor, not
+// just flag red.
+//
+// Numbers updated for fix rounds 1-3 (Task 11): a corrected captureRate
+// (0.004, was 8-20x actual AI revenue) plus priceDamp's smooth tail (fixing a
+// bang-bang oscillation) together moved 2029's actual output to ~22.7 GW and
+// its credit-unconstrained physical ceiling (memory) down from ~86.3 to
+// ~23.1 GW. See test/engine-acceptance.test.js for the full history.
 test('calibration panel explains an unreachable GW miss using impliedCreditDepthFor', () => {
   const rows = calibrationRows(run, CALIBRATION_TARGETS);
   const miss = rows.find(r => r.id === 'gw2029');
@@ -89,7 +110,7 @@ test('calibration panel explains an unreachable GW miss using impliedCreditDepth
   assert.ok(typeof miss.explanation === 'string' && miss.explanation.length > 0,
     'a missed GW target must carry an explanation');
   assert.ok(miss.explanation.toLowerCase().includes('memory'), 'must name the limiting rail');
-  assert.ok(miss.explanation.includes('86.3'), 'must surface the physical ceiling GW (confirmed: 86.32)');
+  assert.ok(miss.explanation.includes('23.1'), 'must surface the physical ceiling GW (confirmed: 23.14)');
 
   const html = calibrationHtml(run, CALIBRATION_TARGETS);
   assert.ok(html.includes('unreachable'));
@@ -97,14 +118,17 @@ test('calibration panel explains an unreachable GW miss using impliedCreditDepth
 });
 
 test('calibration explanation reports required credit depth when a miss is reachable', () => {
-  // Confirmed: impliedCreditDepthFor(80, 2029, DEFAULT_INPUTS) ->
-  // { reachable: true, creditMarketDepth: 3321.5, limitingRail: 'capital' }.
+  // Confirmed: impliedCreditDepthFor(20, 2029, DEFAULT_INPUTS) ->
+  // { reachable: true, creditMarketDepth: ~0, limitingRail: 'capital' }.
+  // 20 GW sits comfortably inside the new ~23.1 GW physical ceiling, and
+  // DEFAULT_INPUTS' own ecosystemCashFlow alone already funds it -- no
+  // credit-market depth needed at all.
   const reachableTarget = { id: 'gw2029', label: '2029 new GW (test)', source: 'test',
-    basis: 'none', year: 2029, target: 80, tolerance: 0.01 };
+    basis: 'none', year: 2029, target: 20, tolerance: 0.01 };
   const rows = calibrationRows(run, [reachableTarget]);
   assert.equal(rows[0].pass, false);
-  assert.ok(rows[0].explanation.includes('capital'), 'confirmed limitingRail for the 80GW/2029 case');
-  assert.ok(rows[0].explanation.includes('3.3'), 'confirmed creditMarketDepth ~$3.3T/yr');
+  assert.ok(rows[0].explanation.includes('capital'), 'confirmed limitingRail for the 20GW/2029 case');
+  assert.ok(rows[0].explanation.includes('reachable at'), 'must state the reachable-branch framing');
 });
 
 test('a passing GW target carries no miss explanation', () => {

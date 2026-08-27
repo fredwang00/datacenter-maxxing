@@ -13,7 +13,15 @@ test('arbitrage shelf is large below the floor and vanishes above it', () => {
 test('lab demand is damped as price approaches willingness to pay', () => {
   assert.ok(priceDamp(10, 50) > 0.9, 'cheap vs WTP -> buy freely');
   assert.ok(priceDamp(49, 50) < 0.3, 'at WTP -> nearly stop');
-  assert.equal(priceDamp(60, 50), 0, 'above WTP -> stop entirely');
+  // Fix round 2 (Task 11): labWtp is a MEAN across a lab's use cases, not a
+  // hard reservation price -- a tail of uses is worth far more than average,
+  // so demand above WTP narrows to that tail rather than vanishing. A hard
+  // zero here caused bang-bang oscillation (labs stopped entirely, price
+  // crashed, labs returned next year at ~5x volume). This assertion IS the
+  // defect being removed, not a goalpost move: small and strictly positive.
+  const above = priceDamp(60, 50);
+  assert.ok(above > 0, 'above WTP -> tapers to a thin tail, never hits exactly zero');
+  assert.ok(above < 0.1, 'the tail is thin -- most demand still falls away above WTP');
 });
 
 test('F6: arbitrage shelf is fully engaged, not NaN, when floorCost is non-positive', () => {

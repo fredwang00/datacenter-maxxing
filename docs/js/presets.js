@@ -96,7 +96,15 @@ const DEFAULT_INPUTS = {
   regDragSmooth: 0.05,            // withheld model releases
   regStopProbability: 0.25,       // discrete jurisdiction-level stops
   addressableValueB: 42000,       // $B/yr wage bill + IT spend
-  captureRate: 0.03,
+  // Fix round 1 (Task 11): 0.03 implied 42000 x 0.03 = $1,260B/yr of AI
+  // revenue TODAY -- 8-20x actual (OpenAI ~$25B ARR, Anthropic ~$19B, maybe
+  // ~$60-150B across all AI software). That overstatement defanged the
+  // diffusion ceiling entirely: diffusionBound was never true anywhere,
+  // across every preset, at any point in the simulated horizon. 0.004
+  // implies 42000 x 0.004 = $168B/yr, a defensible 2026 starting point, and
+  // is calibrated so the ceiling actually binds (2027-2029 at defaults)
+  // while preserving the 2026-2028 GW acceptance path. Do NOT restore 0.03.
+  captureRate: 0.004,
   captureRateGrowth: 0.35,
 };
 // Mutable module-level singleton: a stray `Object.assign(DEFAULT_INPUTS, ...)`

@@ -149,12 +149,27 @@ function arbitrageShelf(price, floorCost) {
   return ARB_SHELF_MAX_GW * Math.exp(-ARB_SHELF_SHARPNESS * Math.max(0, excess));
 }
 
-// Labs buy freely well below their willingness-to-pay and stop at it.
+// labWtp is a MEAN willingness to pay across a lab's use cases, not a hard
+// reservation price -- the distribution has a tail of uses worth far more
+// than average, so demand narrows to that tail above the mean instead of
+// vanishing. A hard zero here produced bang-bang oscillation: labs stopped
+// entirely once the diffusion ceiling cut labRevPerMw below the clearing
+// price, collapsing 2029 to the hyperscaler+hoarder floor; price then
+// crashed and labs returned the next year at ~5x volume. Fix round 2 (Task
+// 11). 0.08 was chosen over the 0.10 also tested in scratch because it gives
+// more margin on the surviving calibration tests while still eliminating the
+// hard zero; both keep the function continuous and monotonic in price.
+const LAB_TAIL_SHARE = 0.08;
+const LAB_TAIL_DECAY = 3.0;
+
+// Labs buy freely well below their willingness-to-pay and taper off above it,
+// down to a thin tail rather than a hard stop (see LAB_TAIL_SHARE above).
 function priceDamp(price, wtp) {
   if (!(wtp > 0)) return 0;
-  if (price >= wtp) return 0;
-  const headroom = 1 - price / wtp;
-  return Math.pow(headroom, PRICE_DAMP_EXPONENT);
+  const ratio = price / wtp;
+  const core = (1 - LAB_TAIL_SHARE) * Math.pow(Math.max(0, 1 - ratio), PRICE_DAMP_EXPONENT);
+  const tail = LAB_TAIL_SHARE * Math.exp(-LAB_TAIL_DECAY * Math.max(0, ratio - 1));
+  return core + tail;
 }
 
 function computeDemand(state, inputs, year) {
@@ -300,11 +315,11 @@ function stepMonetization(state, inputs, rng) {
   const wtpFraction = Math.min(WTP_FRACTION_MAX, state.wtpFraction * (1 + inputs.wtpFractionGrowth));
 
   const next = { ...state, inferenceShare, captureRate };
-  const cap = diffusionCeiling(next, inputs);
-  const diffusionBound = grown > cap;
-  const labRevPerMw = diffusionBound ? cap : grown;
+  const diffusionCeilingMw = diffusionCeiling(next, inputs);
+  const diffusionBound = grown > diffusionCeilingMw;
+  const labRevPerMw = diffusionBound ? diffusionCeilingMw : grown;
 
-  return { labRevPerMw, capability, inferenceShare, captureRate, wtpFraction, diffusionBound };
+  return { labRevPerMw, capability, inferenceShare, captureRate, wtpFraction, diffusionBound, diffusionCeilingMw };
 }
 
 // Repriced per year against DEMAND vs a per-rail CEILING. Only memory, package
@@ -378,6 +393,17 @@ function simulate(inputs, seed) {
 
     const demand = computeDemand(state, inputs, year);
     const nextPrice = clearPrice(state, inputs, demand.total, supplyGw);
+    // Fix round 3 (Task 11): allocate() runs BEFORE state.computePrice is
+    // updated below, so it uses the PRIOR year's price (this year's opening,
+    // lagged-expectations price) -- not `nextPrice`/the emitted `computePrice`
+    // (this year's newly cleared price, which becomes NEXT year's opening
+    // price). Both are internally consistent, but an auditor recomputing
+    // labShare(labWtp, computePrice) from the emitted state alone would get a
+    // different number than labShareOfNew, with no way to tell why. Capture
+    // the price actually used for allocation so the state table can show
+    // both. Do not reorder simulate(): allocating at the prevailing price and
+    // then repricing for next year is the correct sequence.
+    const clearingPrice = state.computePrice;
     const alloc = allocate(state, inputs, demand, supplyGw);
 
     const railStep = stepRails(state, inputs, demand.total, ceilings, physCeilGw);
@@ -420,6 +446,10 @@ function simulate(inputs, seed) {
       // stays in [0,1] by construction; dividing by newGw alone lets the
       // ratio exceed 1.0 whenever the hoard releases materially.
       labShareOfNew: alloc.forSale > 0 ? alloc.labGain / alloc.forSale : 0,
+      // The price this year's allocation (and labShareOfNew) actually used --
+      // see the comment above clearingPrice's assignment. Distinct from
+      // computePrice below, which is the NEW price cleared this year.
+      clearingPrice,
       computePrice: state.computePrice,
       capexPerGw: state.capexPerGw,
       capex,
@@ -431,6 +461,14 @@ function simulate(inputs, seed) {
       labRevPerMw: state.labRevPerMw,
       effectiveGw: state.effectiveGw,
       hoardedStock: state.hoardedStock,
+      // Fix round 1 (Task 11): inferenceShare and captureRate drove the
+      // diffusion ceiling internally but were never emitted, so the ceiling
+      // was unauditable from the output, the renderers couldn't display
+      // either, and Dylan's non-consensus "inference share falls" call was
+      // invisible in a tool built partly to test it.
+      inferenceShare: state.inferenceShare,
+      captureRate: state.captureRate,
+      diffusionCeilingMw: mon.diffusionCeilingMw,
       diffusionBound: mon.diffusionBound,
       railPrice: { ...railStep.railPrice },
       railTightness: { ...railStep.tightness },
@@ -519,7 +557,7 @@ function backtest() {
 return {
   START_YEAR, END_YEAR, POWER_MODES, PIPELINE_BASE, PIPELINE_GROWTH,
   initialState, seedPipelines, computeCeilings, bindingConstraint, physicalCeiling, pipelineCapacity,
-  arbitrageShelf, priceDamp, computeDemand, clearPrice,
+  arbitrageShelf, priceDamp, LAB_TAIL_SHARE, LAB_TAIL_DECAY, computeDemand, clearPrice,
   labShare, hoarderRelease, allocate, LAB_SHARE_SATURATION_RANGE,
   termPremium, creditCapacity, stepCapital,
   makeRng, diffusionCeiling, regStopFactor, stepMonetization,

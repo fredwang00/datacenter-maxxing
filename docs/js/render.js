@@ -25,26 +25,55 @@ function fmtB(n) {
 function fmtPct(n) { return Number.isFinite(n) ? (n * 100).toFixed(0) + '%' : '—'; }
 function fmtGw(n) { return Number.isFinite(n) ? n.toFixed(1) : '—'; }
 
+// Column list is explicit (rather than a bare label array) so a couple of
+// headers can carry a tooltip explaining what they mean -- specifically the
+// Alloc Price / Price split (fix round 3, Task 11): allocate() runs on the
+// PRIOR year's price, not the newly-cleared one, so an auditor recomputing
+// labShare from the emitted state needs to know which price feeds which
+// number, or they'll reconcile against the wrong one.
+const STATE_TABLE_COLUMNS = [
+  { label: 'Year' },
+  { label: 'Demand' },
+  { label: 'EUV' },
+  { label: 'Memory' },
+  { label: 'Pkg' },
+  { label: 'Power' },
+  { label: 'Capital' },
+  { label: 'Binding' },
+  { label: 'Alloc Price', title: 'The price this year\'s allocation and lab share actually used -- last year\'s ending price (the initial price in 2026).' },
+  { label: 'Price', title: 'This year\'s newly cleared price. Becomes next year\'s Alloc Price.' },
+  { label: '$B/GW' },
+  { label: 'Credit' },
+  { label: 'Rate' },
+  { label: 'Lab GW' },
+  { label: 'Hoarder Got' },
+  { label: 'Inference Share' },
+  { label: 'Lab $/MW (ceiling)', title: 'Realized lab revenue per MW, and the diffusion ceiling -- the most the economy can absorb that year.' },
+];
+
 function stateTableHtml(run) {
-  const head = ['Year', 'Demand', 'EUV', 'Memory', 'Pkg', 'Power', 'Capital', 'Binding',
-    'Price', '$B/GW', 'Credit', 'Rate', 'Lab GW', 'Hoarder Got', 'Lab $/MW']
-    .map(h => `<th>${h}</th>`).join('');
+  const head = STATE_TABLE_COLUMNS.map(c => `<th${c.title ? ` title="${c.title}"` : ''}>${c.label}</th>`).join('');
   const rows = run.map(y => {
     const ceilings = y.ceilings || {};
-    const labRevCell = Number.isFinite(y.labRevPerMw)
-      ? '$' + y.labRevPerMw.toFixed(0) + 'M' + (y.diffusionBound
-          ? ' <span class="warn diffusion-bound" title="lab revenue hit the ceiling of what the economy can absorb this year">diffusion-bound</span>'
-          : '')
-      : '—';
+    const labRevCell = (() => {
+      if (!Number.isFinite(y.labRevPerMw)) return '—';
+      const rev = '$' + y.labRevPerMw.toFixed(0) + 'M';
+      const ceilingTxt = Number.isFinite(y.diffusionCeilingMw) ? '$' + y.diffusionCeilingMw.toFixed(0) + 'M' : '—';
+      const marker = y.diffusionBound
+        ? ' <span class="warn diffusion-bound" title="lab revenue hit the ceiling of what the economy can absorb this year">diffusion-bound</span>'
+        : '';
+      return `${rev} <span class="ceiling-note" title="diffusion ceiling this year">/ ceil ${ceilingTxt}</span>${marker}`;
+    })();
     const cells = [
       y.year, fmtGw(y.demand), fmtGw(ceilings.euv), fmtGw(ceilings.memory),
       fmtGw(ceilings.package), fmtGw(ceilings.power), fmtGw(ceilings.capital),
       y.binding ? `<span class="binding binding-${y.binding}">${y.binding}</span>` : '—',
+      Number.isFinite(y.clearingPrice) ? '$' + y.clearingPrice.toFixed(0) + 'M' : '—',
       Number.isFinite(y.computePrice) ? '$' + y.computePrice.toFixed(0) + 'M' : '—',
       Number.isFinite(y.capexPerGw) ? y.capexPerGw.toFixed(1) : '—',
       fmtB(y.credit),
       Number.isFinite(y.rate) ? (y.rate * 100).toFixed(1) + '%' : '—',
-      fmtGw(y.labGw), fmtGw(y.hoarderGot), labRevCell,
+      fmtGw(y.labGw), fmtGw(y.hoarderGot), fmtPct(y.inferenceShare), labRevCell,
     ];
     const mark = y.clamped ? ' <span class="warn" title="a clamp bound — parameters are likely wrong">clamped</span>' : '';
     const rowClass = [y.clamped ? 'row-clamped' : '', y.diffusionBound ? 'row-diffusion-bound' : '']
