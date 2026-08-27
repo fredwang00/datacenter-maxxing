@@ -67,3 +67,31 @@ test('newGw is the lesser of demand and supply', () => {
   const abundant = allocate(s, DEFAULT_INPUTS, d, 5000);
   assert.ok(Math.abs(abundant.newGw - d.total) < 1e-9, 'demand-limited');
 });
+
+test('INVARIANT: hoarderGot is the proportional share and never exceeds newGw', () => {
+  const s = initialState(DEFAULT_INPUTS);
+  s.computePrice = 45;
+  s.hoardedStock = 10;
+  const d = computeDemand(s, DEFAULT_INPUTS, 2026);
+  const r = allocate(s, DEFAULT_INPUTS, d, 5000);
+  const expected = r.newGw * (DEFAULT_INPUTS.hoarderBuildGw / d.total);
+  assert.ok(r.hoarderGot > 0, 'test is only meaningful when the hoarder builds');
+  assert.ok(Math.abs(r.hoarderGot - expected) < 1e-9,
+    `hoarderGot ${r.hoarderGot} is not the proportional share ${expected}`);
+  assert.ok(r.hoarderGot <= r.newGw + 1e-9, 'hoarderGot can never exceed newGw');
+});
+
+test('INVARIANT: newGw never exceeds supplyGw even while the hoard is releasing', () => {
+  const s = initialState(DEFAULT_INPUTS);
+  s.computePrice = 45;          // above HOARDER_INTERNAL_VALUE, so released > 0
+  s.hoardedStock = 10;
+  const d = computeDemand(s, DEFAULT_INPUTS, 2026);
+  const supply = 5;             // deliberately BELOW demand so supply binds
+  const r = allocate(s, DEFAULT_INPUTS, d, supply);
+  assert.ok(r.released > 0, 'test is only meaningful when released > 0');
+  assert.ok(d.total > supply, 'scenario must actually be supply-constrained');
+  assert.ok(r.newGw <= supply + 1e-9,
+    `newGw ${r.newGw} exceeded the physical ceiling ${supply}`);
+  assert.ok(Math.abs(r.newGw - supply) < 1e-9,
+    'supply-constrained: newGw must equal supplyGw exactly');
+});
