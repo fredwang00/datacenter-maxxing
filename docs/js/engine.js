@@ -35,11 +35,17 @@ const POWER_MODES = {
 // after wiring stepRails to default an unceilinged rail's tightness to
 // supplyGw instead of demandGw (see stepRails). That fix makes power the
 // binding constraint through 2027 and lets memory's HBM step-reset take over
-// as the binding constraint from 2028 -- its own ceiling comfortably clears
-// the (off-limits) EUV ceiling (~94.3 GW in 2029) while still tracking the
-// 30/50/70/95 transcript path within tolerance.
+// as the binding constraint from 2028.
+//
+// Fix round 1 (Task 9): power.growth 0.60 -> 0.55 and memory.growth 0.395 ->
+// 0.34, retuned again once stepBullwhip (below) started expanding memory's
+// and power's pipelines on top of this base growth. At the Task 9 values,
+// the bullwhip's added expansion pushed memory's ceiling past the
+// (off-limits, fixed) EUV ceiling by 2029, flipping the binding constraint
+// to EUV. Lower base growth leaves headroom for the bullwhip's contribution
+// so memory still clears 2028/2029 without ever crossing EUV.
 const PIPELINE_BASE = { memory: 34, package: 38, power: 30 };
-const PIPELINE_GROWTH = { memory: 0.395, package: 0.40, power: 0.60 };
+const PIPELINE_GROWTH = { memory: 0.34, package: 0.40, power: 0.55 };
 
 function seedPipelines(state, inputs) {
   for (const railId of Object.keys(PIPELINE_BASE)) {
@@ -311,6 +317,28 @@ function stepRails(state, inputs, demandGw, ceilings, supplyGw) {
   return { railPrice, capexPerGw: sumPerGw(railPrice), tightness };
 }
 
+// Bullwhip, stabilizing half. A rail priced above its 2026 baseline signals
+// profit, which induces capacity expansion landing r.lag years later. Without
+// this, tightness never resolves and prices compound without bound -- only
+// the amplifying half of the bullwhip (repriceContinuous/repriceStep) existed
+// before this fix. BULLWHIP_GAIN is fitted, not sourced: no public figure
+// exists for how strongly capacity responds to price in these supply chains.
+// Fix-round calibration (Task 9): 0.5 was tried first and left tightness
+// still climbing through 2029; 0.9 is strong enough to turn tightness over
+// by 2029-2030 while leaving the 2026-2028 GW path within tolerance.
+const BULLWHIP_GAIN = 0.9;
+
+function stepBullwhip(state, year) {
+  for (const railId of Object.keys(PIPELINE_BASE)) {
+    const rail = railById(railId);
+    const priceRatio = state.railPrice[railId] / rail.price2026;
+    if (priceRatio <= 1) continue;
+    const landing = Math.round(year + rail.lag);
+    if (state.pipeline[railId][landing] === undefined) continue;
+    state.pipeline[railId][landing] *= 1 + BULLWHIP_GAIN * (priceRatio - 1);
+  }
+}
+
 function simulate(inputs, seed) {
   const rng = makeRng(seed === undefined ? 1 : seed);
   const state = initialState(inputs);
@@ -339,6 +367,7 @@ function simulate(inputs, seed) {
     state.hoardedStock = alloc.hoardedStockAfter;
     state.railPrice = railStep.railPrice;
     state.capexPerGw = railStep.capexPerGw;
+    stepBullwhip(state, year);
     state.cumulativeCredit = cap.cumulativeCredit;
     state.cumulativeCapex = cap.cumulativeCapex;
     state.rate = cap.rate;
@@ -390,6 +419,6 @@ return {
   labShare, hoarderRelease, allocate, LAB_SHARE_SATURATION_RANGE,
   termPremium, creditCapacity, stepCapital,
   makeRng, diffusionCeiling, regStopFactor, stepMonetization,
-  stepRails, simulate,
+  stepRails, stepBullwhip, BULLWHIP_GAIN, simulate,
 };
 });
