@@ -48,3 +48,24 @@ test('presets only override keys that exist in DEFAULT_INPUTS', () => {
     }
   }
 });
+
+test('F12: DEFAULT_INPUTS is frozen so a stray write cannot poison later simulate() calls', () => {
+  const original = DEFAULT_INPUTS.hoarderBuildGw;
+  // presets.js and this test file are both sloppy mode (no 'use strict'), so
+  // a direct write to a frozen object fails SILENTLY rather than throwing --
+  // assert the value is unchanged, not that an exception was thrown.
+  DEFAULT_INPUTS.hoarderBuildGw = 999999;
+  assert.equal(DEFAULT_INPUTS.hoarderBuildGw, original,
+    'direct property assignment on DEFAULT_INPUTS must not stick');
+
+  // Object.assign uses an internal [[Set]] that throws on a non-writable
+  // property regardless of strict mode -- unlike the direct assignment
+  // above, so we tolerate (not assert on) the throw here. Either way, the
+  // outcome the finding cares about -- DEFAULT_INPUTS never actually
+  // changes -- must hold.
+  try {
+    Object.assign(DEFAULT_INPUTS, { hoarderBuildGw: 12345 });
+  } catch (e) { /* frozen objects may throw here; that's fine either way */ }
+  assert.equal(DEFAULT_INPUTS.hoarderBuildGw, original,
+    'Object.assign onto DEFAULT_INPUTS must never leave it changed');
+});

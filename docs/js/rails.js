@@ -5,6 +5,10 @@
 //   basis 'annuity' = $B per GW/YEAR of production capacity (a fab emits GW forever)
 // All perGw figures are IT-load basis. See the spec's units guard.
 
+// Power Usage Effectiveness: facility power = IT power * PUE. Exists so a
+// future task can show facility-load equivalents alongside IT-load figures.
+// Exported but has NO CONSUMER yet (verified by grep) -- delete it if the
+// render task ships without one.
 const PUE = 1.25;
 
 const RAILS = [
@@ -68,7 +72,7 @@ function sumPerGw(railPrice, ids) {
     if (!rail) throw new Error(`Unknown rail "${id}"`);
     if (rail.basis !== 'perGw') {
       throw new Error(
-        `Units guard: rail "${id}" has basis "annuity" and cannot be summed into ` +
+        `Units guard: rail "${id}" has basis "${rail.basis}" and cannot be summed into ` +
         `capexPerGw. annuity rails are $B per GW/yr of production capacity; ` +
         `perGw rails are $B per GW deployed once.`
       );
@@ -90,8 +94,14 @@ function railTightness(demandGw, ceilingGw) {
   return clamp(demandGw / ceilingGw, TIGHTNESS_MIN, TIGHTNESS_MAX);
 }
 
+// A rail can shed value fast when slack, but never invert. Without this floor an
+// elasticity above 2.0 (reachable via the slider) drives price negative, which
+// propagates to a negative capexPerGw and a negative capital ceiling.
+const REPRICE_MULTIPLIER_MIN = 0.25;
+
 function repriceContinuous(price, elasticity, tightness) {
-  return price * (1 + elasticity * (tightness - 1));
+  const multiplier = Math.max(REPRICE_MULTIPLIER_MIN, 1 + elasticity * (tightness - 1));
+  return price * multiplier;
 }
 
 function newStepState() { return { pressure: 0, yearsSinceReset: 0 }; }
@@ -112,7 +122,7 @@ function repriceStep(price, tightness, stepState, resetInterval) {
   return price;
 }
 
-const _railsApi = { PUE, RAILS, railById, topLevelPerGwIds, topLevelAnnuityIds, initialRailPrice, sumPerGw, clamp, railTightness, repriceContinuous, repriceStep, newStepState, TIGHTNESS_MIN, TIGHTNESS_MAX, STEP_GAIN, MEMORY_RESET_INTERVAL };
+const _railsApi = { PUE, RAILS, railById, topLevelPerGwIds, topLevelAnnuityIds, initialRailPrice, sumPerGw, clamp, railTightness, repriceContinuous, repriceStep, newStepState, TIGHTNESS_MIN, TIGHTNESS_MAX, STEP_GAIN, MEMORY_RESET_INTERVAL, REPRICE_MULTIPLIER_MIN };
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = _railsApi;
 } else if (typeof self !== 'undefined') {

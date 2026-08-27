@@ -16,6 +16,19 @@ test('lab demand is damped as price approaches willingness to pay', () => {
   assert.equal(priceDamp(60, 50), 0, 'above WTP -> stop entirely');
 });
 
+test('F6: arbitrage shelf is fully engaged, not NaN, when floorCost is non-positive', () => {
+  // (price - 0) / 0 is NaN, which poisons Math.max and then Math.exp. A
+  // floorCost <= 0 means there's no cost floor to measure excess against, so
+  // the shelf should be treated as fully engaged (its max), not NaN.
+  const atZero = arbitrageShelf(0, 0);
+  assert.ok(Number.isFinite(atZero), `expected a finite number, got ${atZero}`);
+  assert.equal(atZero, 12, 'floorCost <= 0 must fully engage the shelf at ARB_SHELF_MAX_GW');
+
+  const negativeFloor = arbitrageShelf(5, -3);
+  assert.ok(Number.isFinite(negativeFloor), `expected a finite number, got ${negativeFloor}`);
+  assert.equal(negativeFloor, 12, 'a negative floorCost must also fully engage the shelf');
+});
+
 test('price cannot fall below the arbitrage floor', () => {
   const s = initialState(DEFAULT_INPUTS);
   const p = clearPrice(s, DEFAULT_INPUTS, 1, 500);  // massive oversupply

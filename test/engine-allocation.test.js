@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { initialState, computeDemand, allocate, labShare, hoarderRelease } = require('../docs/js/engine.js');
+const { initialState, computeDemand, allocate, labShare, hoarderRelease, LAB_SHARE_SATURATION_RANGE } = require('../docs/js/engine.js');
 const { DEFAULT_INPUTS } = require('../docs/js/presets.js');
 
 test('CONSERVATION: released hoard is inventory, never new capacity', () => {
@@ -135,19 +135,24 @@ function expectedHoarderRelease(state, price) {
   return Math.min(state.hoardedStock, state.hoardedStock * fraction);
 }
 
-// Reference model of labShare, same rationale.
+// Reference model of labShare, same rationale. Uses the real
+// LAB_SHARE_SATURATION_RANGE (a documented calibration lever, F8) rather than
+// a hardcoded 3, so this shadow can't silently drift from engine.js if that
+// lever is retuned.
 function expectedLabShare(labWtp, price) {
   if (!(price > 0)) return 1;
   const ratio = labWtp / price;
-  return Math.min(1, Math.max(0, (ratio - 1) / 3));
+  return Math.min(1, Math.max(0, (ratio - 1) / LAB_SHARE_SATURATION_RANGE));
 }
 
 // Reference model of allocate's full contract, built only from
 // (state, inputs, demand, supplyGw) -- never from another returned field.
+// hoarderShare reads demand.hoarder (F7), matching allocate's own contract:
+// computeDemand is the source of truth for hoarder demand, not the raw input.
 function expectedAllocation(state, inputs, demand, supplyGw) {
   const newGw = Math.min(demand.total, supplyGw);
   const released = expectedHoarderRelease(state, state.computePrice);
-  const hoarderShare = demand.total > 0 ? inputs.hoarderBuildGw / demand.total : 0;
+  const hoarderShare = demand.total > 0 ? demand.hoarder / demand.total : 0;
   const hoarderGot = newGw * hoarderShare;
   const forSale = (newGw - hoarderGot) + released;
   const labGain = forSale * expectedLabShare(demand.labWtp, state.computePrice);
@@ -226,3 +231,98 @@ test('labShare stays bounded to [0, 1] even at an extreme WTP/price ratio', () =
     `labShare(100, 5) = ${extreme}, expected ${expectedLabShare(100, 5)}`);
   assert.ok(extreme <= 1.0 + 1e-9, 'labShare must never exceed 1');
 });
+
+test('F8: labShare saturates exactly at labWtp = (1 + LAB_SHARE_SATURATION_RANGE) x price', () => {
+  const price = 10;
+  const atBoundary = labShare(price * (1 + LAB_SHARE_SATURATION_RANGE), price);
+  assert.ok(Math.abs(atBoundary - 1) < 1e-9, `expected exactly 1.0 at the saturation boundary, got ${atBoundary}`);
+  const justBelow = labShare(price * (1 + LAB_SHARE_SATURATION_RANGE) - 0.5, price);
+  assert.ok(justBelow < 1, `just below the boundary must not yet be saturated, got ${justBelow}`);
+});
+
+test('F7: allocate uses demand.hoarder, not inputs.hoarderBuildGw, for hoarder rationing', () => {
+  const s = initialState(DEFAULT_INPUTS);
+  const d = computeDemand(s, DEFAULT_INPUTS, 2026);
+  // Simulate a future computeDemand where hoarder demand has become
+  // price-sensitive and now diverges from the raw input -- allocate must
+  // follow the demand object, the documented source of truth, not silently
+  // keep reading inputs.hoarderBuildGw.
+  const divergentDemand = { ...d, hoarder: d.hoarder + 20, total: d.total + 20 };
+  assert.notEqual(divergentDemand.hoarder, DEFAULT_INPUTS.hoarderBuildGw,
+    'test is only meaningful when demand.hoarder differs from the raw input');
+  const r = allocate(s, DEFAULT_INPUTS, divergentDemand, 5000);
+  const expectedShare = divergentDemand.hoarder / divergentDemand.total;
+  assert.ok(Math.abs(r.hoarderGot - r.newGw * expectedShare) < 1e-9,
+    `hoarderGot ${r.hoarderGot} must follow demand.hoarder (${divergentDemand.hoarder}), not inputs.hoarderBuildGw (${DEFAULT_INPUTS.hoarderBuildGw})`);
+});
+
+// ---------------------------------------------------------------------------
+// JOB 1: close the hoarderBuildGw mutation gap.
+//
+// Every cell of the MATRIX above fixes inputs.hoarderBuildGw at DEFAULT_INPUTS'
+// value of 4, so any defect that is wrong only at OTHER values of
+// hoarderBuildGw survives undetected. Concretely, this mutation passed all
+// tests above:
+//   const hoarderShare = demand.total > 0 ? (inputs.hoarderBuildGw || 1) / demand.total : 0;
+// At hoarderBuildGw = 0 (a real slider value, reachable by presets too), the
+// `|| 1` fallback fabricates a share of 1/demand.total for a hoarder that
+// built NOTHING, instead of 0.
+//
+// Rather than special-case 0, the fix is to vary the input: re-run the full
+// four-cell matrix at hoarderBuildGw = 0 and again at 10 (an arbitrary value
+// other than both 4 and 0), asserting every returned field against the
+// shadow reference in each new cell. This is a general defense against "wrong
+// only at an untested input value," not a fix for one reviewer's example.
+for (const hoarderBuildGw of [0, 10]) {
+  const inputs = { ...DEFAULT_INPUTS, hoarderBuildGw };
+
+  test(`MATRIX (hoarderBuildGw=${hoarderBuildGw}): demand-constrained, released == 0`, () => {
+    const s = initialState(inputs);
+    s.hoardedStock = 10;
+    const d = computeDemand(s, inputs, 2026);
+    const supplyGw = 5000;
+    assert.ok(supplyGw > d.total, 'scenario must actually be demand-constrained');
+    const r = allocate(s, inputs, d, supplyGw);
+    assert.strictEqual(r.released, 0, 'computePrice <= HOARDER_INTERNAL_VALUE must yield zero release');
+    assertMatchesContract(r, expectedAllocation(s, inputs, d, supplyGw), s,
+      `demand-constrained/released=0/hoarderBuildGw=${hoarderBuildGw}`);
+  });
+
+  test(`MATRIX (hoarderBuildGw=${hoarderBuildGw}): demand-constrained, released > 0`, () => {
+    const s = initialState(inputs);
+    s.hoardedStock = 10;
+    s.computePrice = 45;
+    const d = computeDemand(s, inputs, 2026);
+    const supplyGw = 5000;
+    assert.ok(supplyGw > d.total, 'scenario must actually be demand-constrained');
+    const r = allocate(s, inputs, d, supplyGw);
+    assert.ok(r.released > 0, 'test is only meaningful when the hoard is releasing');
+    assertMatchesContract(r, expectedAllocation(s, inputs, d, supplyGw), s,
+      `demand-constrained/released>0/hoarderBuildGw=${hoarderBuildGw}`);
+  });
+
+  test(`MATRIX (hoarderBuildGw=${hoarderBuildGw}): supply-constrained, released == 0`, () => {
+    const s = initialState(inputs);
+    s.hoardedStock = 10;
+    const d = computeDemand(s, inputs, 2026);
+    const supplyGw = 5;
+    assert.ok(supplyGw < d.total, 'scenario must actually be supply-constrained');
+    const r = allocate(s, inputs, d, supplyGw);
+    assert.strictEqual(r.released, 0, 'computePrice <= HOARDER_INTERNAL_VALUE must yield zero release');
+    assertMatchesContract(r, expectedAllocation(s, inputs, d, supplyGw), s,
+      `supply-constrained/released=0/hoarderBuildGw=${hoarderBuildGw}`);
+  });
+
+  test(`MATRIX (hoarderBuildGw=${hoarderBuildGw}): supply-constrained, released > 0`, () => {
+    const s = initialState(inputs);
+    s.hoardedStock = 10;
+    s.computePrice = 45;
+    const d = computeDemand(s, inputs, 2026);
+    const supplyGw = 5;
+    assert.ok(supplyGw < d.total, 'scenario must actually be supply-constrained');
+    const r = allocate(s, inputs, d, supplyGw);
+    assert.ok(r.released > 0, 'test is only meaningful when the hoard is releasing');
+    assertMatchesContract(r, expectedAllocation(s, inputs, d, supplyGw), s,
+      `supply-constrained/released>0/hoarderBuildGw=${hoarderBuildGw}`);
+  });
+}

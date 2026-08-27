@@ -28,6 +28,25 @@ test('UNITS GUARD: summing an annuity rail into capexPerGw throws', () => {
   );
 });
 
+test('UNITS GUARD: error message interpolates the rail\'s actual basis, not a hardcoded "annuity"', () => {
+  // Temporarily give an existing rail a third, made-up basis to prove the
+  // message reflects rail.basis dynamically rather than a literal "annuity"
+  // that happens to be right today because only two bases exist. Restored
+  // in `finally` so no other test observes the mutated rail.
+  const optics = railById('optics');
+  const originalBasis = optics.basis;
+  optics.basis = 'widget';
+  try {
+    assert.throws(
+      () => sumPerGw(initialRailPrice(), ['servers', 'optics']),
+      /Units guard.*optics.*basis "widget"/s,
+      'message must report the rail\'s real basis, not a hardcoded string'
+    );
+  } finally {
+    optics.basis = originalBasis;
+  }
+});
+
 test('every rail has a provenance tag', () => {
   for (const r of RAILS) {
     assert.ok(typeof r.provenance === 'string' && r.provenance.length > 0, `${r.id} missing provenance`);
@@ -41,7 +60,7 @@ test('every parent reference resolves to a real rail', () => {
 });
 
 const { clamp, railTightness, repriceContinuous, repriceStep, newStepState,
-        TIGHTNESS_MAX, MEMORY_RESET_INTERVAL } = require('../docs/js/rails.js');
+        TIGHTNESS_MAX, MEMORY_RESET_INTERVAL, REPRICE_MULTIPLIER_MIN } = require('../docs/js/rails.js');
 
 test('tightness is demand over ceiling, clamped to [0.5, 3.0]', () => {
   assert.ok(Math.abs(railTightness(30, 30) - 1.0) < 1e-9);
@@ -65,6 +84,24 @@ test('continuous repricing scales with elasticity', () => {
 
 test('slack rails give back price', () => {
   assert.ok(repriceContinuous(100, 1.0, 0.8) < 100);
+});
+
+test('F5: a legitimate high multiplier is unaffected by the floor', () => {
+  // elasticity 1.3 (the fastest rail today) at max tightness 3.0: multiplier
+  // = 1 + 1.3 * 2 = 3.6. Must not be clipped -- there is no upper cap.
+  const price = repriceContinuous(100, 1.3, 3.0);
+  assert.ok(Math.abs(price - 360) < 0.01, `expected 100 * 3.6 = 360, got ${price}`);
+});
+
+test('F5: REPRICE_MULTIPLIER_MIN floors the multiplier so extreme elasticity cannot invert price', () => {
+  // elasticity 2.5 (above today's max of 1.3, but slider-exposed per spec) at
+  // the tightness floor 0.5: unguarded multiplier = 1 + 2.5 * (0.5 - 1) = -0.25.
+  const unguardedMultiplier = 1 + 2.5 * (0.5 - 1);
+  assert.ok(unguardedMultiplier <= 0, 'sanity check: this scenario is genuinely dangerous without a floor');
+  const price = repriceContinuous(100, 2.5, 0.5);
+  assert.ok(price > 0, `price must stay positive, got ${price}`);
+  assert.ok(Math.abs(price - 100 * REPRICE_MULTIPLIER_MIN) < 1e-9,
+    `expected the multiplier clamped to REPRICE_MULTIPLIER_MIN (${REPRICE_MULTIPLIER_MIN}), got price ${price}`);
 });
 
 test('STEP: memory stays flat between contract resets, then jumps', () => {

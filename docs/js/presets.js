@@ -70,6 +70,10 @@ const DEFAULT_INPUTS = {
   captureRate: 0.03,
   captureRateGrowth: 0.35,
 };
+// Mutable module-level singleton: a stray `Object.assign(DEFAULT_INPUTS, ...)`
+// would permanently poison every later simulate() in the same page session.
+// Freeze it structurally rather than rely on callers copying it correctly.
+Object.freeze(DEFAULT_INPUTS);
 
 // `basis` records the units denominator so the calibration panel never compares
 // an IT-load figure against a facility-load one (a 20-30% error at PUE 1.25).

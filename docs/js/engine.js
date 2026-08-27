@@ -112,6 +112,10 @@ const PRICE_DAMP_EXPONENT = 0.4;
 // elastic below the floor, gone above it. Does not compete for scarce compute
 // -- it sets the floor.
 function arbitrageShelf(price, floorCost) {
+  // A non-positive floor has no denominator to measure excess against --
+  // treat the shelf as fully engaged rather than let (price - 0) / 0 poison
+  // Math.max/Math.exp with NaN.
+  if (!(floorCost > 0)) return ARB_SHELF_MAX_GW;
   const excess = (price - floorCost) / floorCost;
   return ARB_SHELF_MAX_GW * Math.exp(-ARB_SHELF_SHARPNESS * Math.max(0, excess));
 }
@@ -148,11 +152,18 @@ function clearPrice(state, inputs, demandGw, supplyGw) {
 const HOARDER_INTERNAL_VALUE = 20;   // $M/MW Meta/SpaceX get from using it themselves
 const HOARDER_RELEASE_MAX = 0.6;     // fraction of stock releasable in one year
 
+// Ratio range over which lab share ramps from 0 to 1: labShare saturates at
+// labWtp = 4x price (ratio - 1 spans this many units before hitting the 1.0
+// clamp). This is a calibration lever -- currently the tightest constraint on
+// hitting the 70-80% 2028 lab-share target (Task 9). Shrinking it makes labs
+// saturate at a narrower WTP/price gap.
+const LAB_SHARE_SATURATION_RANGE = 3;
+
 // Labs outbid everyone when their willingness-to-pay clears the market price.
 function labShare(labWtp, price) {
   if (!(price > 0)) return 1;
   const ratio = labWtp / price;
-  return clamp((ratio - 1) / 3, 0, 1);
+  return clamp((ratio - 1) / LAB_SHARE_SATURATION_RANGE, 0, 1);
 }
 
 // Hoarders sell when renting out beats using it internally. Self-limiting:
@@ -173,7 +184,7 @@ function allocate(state, inputs, demand, supplyGw) {
   // The hoarder's own build goes to ITS inventory, not to market. Under supply
   // constraint newGw < demand.total, so ration proportionally rather than
   // subtracting hoarderBuildGw outright (which could exceed newGw).
-  const hoarderShare = demand.total > 0 ? inputs.hoarderBuildGw / demand.total : 0;
+  const hoarderShare = demand.total > 0 ? demand.hoarder / demand.total : 0;
   const hoarderGot = newGw * hoarderShare;
   const forSale = (newGw - hoarderGot) + released;
   const labGain = forSale * labShare(demand.labWtp, state.computePrice);
@@ -185,6 +196,6 @@ return {
   START_YEAR, END_YEAR, POWER_MODES, PIPELINE_BASE, PIPELINE_GROWTH,
   initialState, seedPipelines, computeCeilings, bindingConstraint, pipelineCapacity,
   arbitrageShelf, priceDamp, computeDemand, clearPrice,
-  labShare, hoarderRelease, allocate,
+  labShare, hoarderRelease, allocate, LAB_SHARE_SATURATION_RANGE,
 };
 });
