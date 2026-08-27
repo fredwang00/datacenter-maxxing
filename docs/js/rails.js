@@ -21,8 +21,15 @@ const RAILS = [
     price2026: 4.9, elasticity: 'step', lag: 1.0, provenance: 'researched:ms-vr200-rack-bom' },
   { id: 'package', label: 'CoWoS + ABF substrate', basis: 'perGw', parent: 'servers',
     price2026: 0.6, elasticity: 1.3, lag: 1, provenance: 'researched:cowos-950-per-package' },
+  // elasticity 0.35, not the 1.0 originally guessed: NVIDIA is absorbing
+  // 300-400bps of gross margin (75.0% actual, guided to 74.0%, reportedly
+  // bottoming 71-72%) while passing only ~15% of that through to server
+  // prices with roughly a two-quarter lag. 1.0 asserted full, immediate
+  // pass-through -- the opposite of observed behavior. price2026's
+  // provenance (residual to Epoch's 21.2) is unaffected; only the
+  // elasticity, which was never sourced, changes.
   { id: 'vendorMargin', label: 'Vendor margin + rest of BOM', basis: 'perGw', parent: 'servers',
-    price2026: 14.5, elasticity: 1.0, lag: 0.5, provenance: 'derived:residual-to-epoch-21.2' },
+    price2026: 14.5, elasticity: 0.35, lag: 0.5, provenance: 'researched:nvda-absorbs-300-400bps-passes-15pct' },
   { id: 'network', label: 'Networking, optics', basis: 'perGw', parent: null,
     price2026: 4.9, elasticity: 0.6, lag: 0.5, provenance: 'researched:epoch-ai-2026-05' },
   { id: 'dcElec', label: 'In-DC electrical, switchgear, UPS', basis: 'perGw', parent: null,
