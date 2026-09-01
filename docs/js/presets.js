@@ -172,6 +172,22 @@ const PRESETS = {
   'takeoff':           { wtpFractionGrowth: 0.40, labRevPerMw0: 70, inferenceShareDecay: 0.08,
                          regStopProbability: 0.05, captureRateGrowth: 0.60 },
   'power-starved':     { powerMode: 'ccgt', hoarderBuildGw: 1 },
+  // What has to be true for a SpaceX-class $50M/MW contracted book to pencil.
+  // Not a forecast -- a solved-for scenario. See engine.js spacexSummary().
+  //
+  // At the sourced captureRate (0.004) a $50M/MW book is uncovered in all five
+  // years: the diffusion ceiling holds lab revenue at $27-49M/MW, so the
+  // customer is contracted to pay more per MW than it generates. Raising
+  // captureRate to 0.010 covers 4 of 5 years -- but that implies AI capturing
+  // 42000 x 0.010 = $420B/yr TODAY, against an actual $60-150B across all AI
+  // software. So the premium requires believing AI revenue is already 3-7x
+  // larger than it observably is.
+  //
+  // Even here 2026 never covers: lab revenue starts at ~$49M/MW, just under
+  // the $50 contract. The first year of the book is underwater in the BULL
+  // case, which is worth knowing before signing a five-year term.
+  'spacex-bull':       { captureRate: 0.010, captureRateGrowth: 0.50,
+                         wtpFractionGrowth: 0.40, hoarderBuildGw: 6 },
 };
 
 const _presetsApi = {
