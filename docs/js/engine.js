@@ -583,6 +583,115 @@ function impliedCreditDepthFor(targetGw, year, inputs, seed) {
   return { reachable: true, creditMarketDepth: hi, limitingRail: yearStateAt(hi).limiter };
 }
 
+// ---------------------------------------------------------------------------
+// SpaceX-class hoarder book. Diagnostic on top of a run, same shape as
+// impliedCreditDepthFor -- it does not feed the simulation.
+//
+// The reported SpaceX rate is ~$50M/MW/yr against pure-rental peers at $9-14M.
+// Two claims about that premium are in tension, and separating them is the
+// whole point of this scenario:
+//
+//   BULL: sub-one-year REVENUE payback. At $50M/MW/yr against a ~$38B/GW build
+//         cost, year-one contract revenue exceeds the capex outright. True, and
+//         `spacexPayback` computes it.
+//   BEAR: counterparty coverage. Whoever pays $50M/MW must GENERATE more than
+//         $50M/MW. This model's diffusion ceiling puts lab revenue per MW at
+//         $27-49M, so the payback is fast only if the customer keeps paying --
+//         and `coverage` below 1.0 says it is paying more than it earns.
+//
+// A fast payback and an insolvent counterparty are not contradictory; they are
+// the same deal seen from the two sides. The 1999 telecom parallel is exact.
+//
+// UNITS -- read before editing (see rails.js for the guard this respects):
+//   contractPriceMw is $M/MW/YEAR, a REVENUE RATE. That is the spec's third
+//   basis, distinct from perGw (one-time) and annuity (per GW/yr of capacity).
+//   1 $M/MW == 1 $B/GW, since 1 GW = 1000 MW. So $50M/MW/yr == $50B/GW/yr and
+//   is directly comparable to capexPerGw in $B/GW.
+//   capexPerGw / contractPriceMw therefore yields YEARS. That is a ratio
+//   between two different bases, which is legitimate and is never a sum --
+//   the same shape as the ~1.57% amortization result and the term-premium
+//   duration. Do not add these two quantities.
+const SPACEX_DEFAULTS = {
+  contractPriceMw: 50,          // $M/MW/yr -- the reported SpaceX rate
+  termYears: 5,                 // multi-year take-or-pay contracts
+  gwPerYear: 4,                 // GW newly contracted each year
+  startYear: START_YEAR,
+};
+
+// Revenue-basis payback in years. Deliberately NOT gross-profit payback: it
+// ignores power, opex and collection, so it flatters the deal exactly the way
+// the public bull case does. Reported alongside coverage so the two can be
+// read together rather than one standing in for the other.
+function spacexPayback(capexPerGw, contractPriceMw) {
+  if (!(contractPriceMw > 0)) return Infinity;
+  return capexPerGw / contractPriceMw;
+}
+
+// The highest contract price the customer can cover in EVERY year of the run.
+// It is the minimum of customer revenue per MW, not the mean: a book is only as
+// sound as its worst year, because that is when renewal and default happen.
+function coverableContractPrice(run) {
+  if (!run || run.length === 0) return 0;
+  return Math.min(...run.map(y => y.labRevPerMw));
+}
+
+// Per-year book: GW under contract by vintage, revenue, and whether the
+// counterparty generates enough per MW to service what it signed.
+function spacexBook(run, opts) {
+  const o = { ...SPACEX_DEFAULTS, ...(opts || {}) };
+  const price = o.contractPriceMw;
+  let vintages = [];
+  const rows = [];
+
+  for (const y of run) {
+    if (y.year >= o.startYear) vintages.push({ year: y.year, gw: o.gwPerYear });
+    // A vintage is live while it is inside its term. Prune rather than filter
+    // in place so the list cannot grow without bound on a long horizon.
+    vintages = vintages.filter(v => y.year - v.year < o.termYears);
+    const bookGw = vintages.reduce((a, v) => a + v.gw, 0);
+
+    // $M/MW/yr x GW == $B/yr (1 $M/MW == 1 $B/GW).
+    const revenueB = bookGw * Math.max(0, price);
+    // Coverage > 1 means the customer earns more per MW than it owes.
+    const coverage = price > 0 ? y.labRevPerMw / price : Infinity;
+    const covered = coverage >= 1;
+    const atRiskB = covered ? 0 : revenueB * (1 - coverage);
+
+    rows.push({
+      year: y.year,
+      bookGw,
+      revenueB,
+      customerRevPerMw: y.labRevPerMw,
+      coverage,
+      covered,
+      atRiskB,
+      // If renting out stops clearing, the hoarder falls back to internal use
+      // (xAI/Grok for SpaceX, ads/ranking for Meta). A floor, not a substitute.
+      internalFallbackB: bookGw * HOARDER_INTERNAL_VALUE,
+    });
+  }
+  return rows;
+}
+
+function spacexSummary(run, opts) {
+  const o = { ...SPACEX_DEFAULTS, ...(opts || {}) };
+  const rows = spacexBook(run, o);
+  const covered = rows.filter(r => r.covered);
+  return {
+    contractPriceMw: o.contractPriceMw,
+    termYears: o.termYears,
+    revenuePaybackYears: spacexPayback(run[0].capexPerGw, o.contractPriceMw),
+    maxCoverablePriceMw: coverableContractPrice(run),
+    internalFallbackMw: HOARDER_INTERNAL_VALUE,
+    yearsCovered: covered.length,
+    yearsAtRisk: rows.length - covered.length,
+    minCoverage: Math.min(...rows.map(r => r.coverage)),
+    totalRevenueB: rows.reduce((a, r) => a + r.revenueB, 0),
+    totalAtRiskB: rows.reduce((a, r) => a + r.atRiskB, 0),
+    rows,
+  };
+}
+
 // Historical validation: 2023 memory was loose and earning nothing on HBM;
 // by 2026 memory margin (SK hynix 76% OP) had overtaken foundry (TSMC 67.7%).
 // If the elasticities cannot reproduce a shift that already happened, they are
@@ -628,5 +737,7 @@ return {
   makeRng, diffusionCeiling, regStopFactor, stepMonetization,
   stepRails, stepBullwhip, BULLWHIP_GAIN, simulate, impliedCreditDepthFor,
   HISTORICAL_START, backtest,
+  SPACEX_DEFAULTS, HOARDER_INTERNAL_VALUE, spacexPayback, coverableContractPrice,
+  spacexBook, spacexSummary,
 };
 });
