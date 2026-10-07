@@ -32,7 +32,7 @@ function loadAsBrowserGlobals() {
   // script never becomes a property of the global object, so a missing
   // browser branch in the export footer leaves the value simply undefined.
   const jsDir = path.join(__dirname, '..', 'docs', 'js');
-  for (const file of ['rails.js', 'presets.js', 'engine.js', 'market-scenarios.js', 'render.js']) {
+  for (const file of ['rails.js', 'demand.js', 'presets.js', 'engine.js', 'market-scenarios.js', 'render.js']) {
     const code = fs.readFileSync(path.join(jsDir, file), 'utf8');
     vm.runInContext(code, context, { filename: file });
   }
@@ -71,7 +71,7 @@ test('market-scenarios.js and render.js also expose their APIs as browser global
   // Every panel the page actually draws.
   for (const fn of ['stateTableHtml', 'calibrationHtml', 'ladderHtml', 'marginMigrationHtml',
                     'matrixHtml', 'labComparisonHtml', 'perGwEconomicsHtml',
-                    'bottleneckHtml', 'diffusionHtml']) {
+                    'bottleneckHtml', 'providerRevenueHtml', 'segmentDemandHtml', 'spacexHtml', 'segmentAssumptionsHtml']) {
     assert.equal(typeof context[fn], 'function', `${fn} must be reachable as a browser global`);
   }
 });
@@ -92,11 +92,48 @@ test('a full run renders every panel through the browser-global path', () => {
     labComparisonHtml: () => context.labComparisonHtml(run),
     perGwEconomicsHtml: () => context.perGwEconomicsHtml(run[0]),
     bottleneckHtml: () => context.bottleneckHtml(run[0]),
-    diffusionHtml: () => context.diffusionHtml(run),
+    providerRevenueHtml: () => context.providerRevenueHtml(run),
+    segmentDemandHtml: () => context.segmentDemandHtml(run[0]),
+    spacexHtml: () => context.spacexHtml(run),
+    segmentAssumptionsHtml: () => context.segmentAssumptionsHtml(context.DEFAULT_INPUTS.demandSegments),
   };
   for (const [name, call] of Object.entries(panels)) {
     const html = call();
     assert.equal(typeof html, 'string', `${name} must return a string in the browser path`);
     assert.ok(html.length > 0, `${name} returned an empty string`);
   }
+});
+
+// Exercise the real page wiring with only the DOM boundary replaced. No DOM
+// parsing/layout claim: the separate Chrome check covers those behaviors.
+function loadPageWiring() {
+  const context = loadAsBrowserGlobals();
+  const elements = new Map();
+  context.document = {
+    querySelectorAll: () => [],
+    getElementById: id => {
+      if (!elements.has(id)) elements.set(id, { innerHTML: '', textContent: '', listeners: {},
+        addEventListener(event, listener) { this.listeners[event] = listener; },
+        querySelectorAll() { return []; } });
+      return elements.get(id);
+    },
+  };
+  const html = fs.readFileSync(path.join(__dirname, '../docs/datacenter-economics.html'), 'utf8');
+  const script = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].at(-1)[1];
+  vm.runInContext(script, context, { filename: 'dashboard-inline.js' });
+  return { context, elements };
+}
+
+test('invalid segment edits restore the displayed value before a later valid edit clears the error', () => {
+  const { context, elements } = loadPageWiring();
+  const handler = elements.get('segment-assumptions').listeners.change;
+  const invalid = { dataset: { segment: 'commercial', field: 'valueShare' }, value: '0.8', checkValidity: () => true };
+  handler({ target: invalid });
+  assert.ok(elements.get('segment-error').textContent.length > 0);
+  assert.equal(Number(invalid.value), 0.5, 'rejected value must revert to the value actually modeled');
+  handler({ target: { dataset: { segment: 'research', field: 'budgetB' }, value: '160', checkValidity: () => true } });
+  assert.equal(elements.get('segment-error').textContent, '');
+  assert.equal(vm.runInContext("currentInputs().demandSegments.find(s => s.id === 'research').budgetB", context), 160);
+  assert.equal(vm.runInContext("currentInputs().demandSegments.find(s => s.id === 'commercial').valueShare", context), 0.5);
+  assert.equal(context.DEFAULT_INPUTS.demandSegments[0].budgetB, 150);
 });

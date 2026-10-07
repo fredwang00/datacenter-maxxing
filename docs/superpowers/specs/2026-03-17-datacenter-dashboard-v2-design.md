@@ -1,3 +1,17 @@
+---
+id: dcm:spec/2026-03-17-datacenter-dashboard-v2
+type: spec
+status: superseded
+repo: datacenter-modeling
+created: 2026-03-17
+updated: 2026-10-04
+tags: [dashboard, design-history]
+links:
+  - repo: datacenter-modeling
+    path: docs/superpowers/specs/2026-08-26-datacenter-dashboard-v3-design.md
+    relation: superseded-by
+---
+
 # Datacenter Economics Dashboard v2 — Design Spec
 
 ## Goal

@@ -1,22 +1,5 @@
-// SpaceX-class hoarder book analysis.
-//
-// The reported SpaceX rate is ~$50M/MW/yr against peers at $9-14M. Two claims
-// are in tension and this scenario exists to separate them:
-//
-//   BULL: sub-one-year REVENUE payback. At $50M/MW/yr against a ~$38B/GW build
-//         cost, year-one contract revenue exceeds the capex outright.
-//   BEAR: counterparty coverage. Whoever pays $50M/MW has to GENERATE more than
-//         $50M/MW, and this model's diffusion ceiling puts lab revenue per MW at
-//         $27-49M. A customer paying more than it earns is a renewal/credit
-//         problem no matter how fast the payback looks on paper.
-//
-// UNITS (the project's central invariant -- see rails.js):
-//   contractPriceMw is $M/MW/YEAR, a revenue rate: the spec's third basis,
-//   distinct from both perGw (one-time) and annuity (per GW/yr of capacity).
-//   1 $M/MW == 1 $B/GW because 1 GW = 1000 MW, so $50M/MW/yr == $50B/GW/yr.
-//   capexPerGw / contractPriceMw therefore yields YEARS -- a legitimate ratio
-//   between two different bases, never a sum. Same shape as the amortization
-//   ratio and the term-premium duration.
+// Hypothetical rental-book diagnostics. Revenue coverage and payback are not
+// profit, liquidity, or default models. $M/MW/year equals $B/GW/year.
 
 const { test } = require('node:test');
 const assert = require('node:assert');
@@ -56,9 +39,9 @@ test('contract revenue is book x price, in $B/yr', () => {
 test('COVERAGE: the customer must generate more per MW than it is contracted to pay', () => {
   const rows = spacexBook(run, { contractPriceMw: 50 });
   for (let i = 0; i < rows.length; i++) {
-    const expected = run[i].labRevPerMw / 50;
+    const expected = run[i].providerRevenuePerCommercialMw / 50;
     assert.ok(Math.abs(rows[i].coverage - expected) < 1e-9,
-      `${rows[i].year}: coverage should be labRevPerMw/price`);
+      `${rows[i].year}: coverage should be providerRevenuePerCommercialMw/price`);
     assert.equal(rows[i].covered, expected >= 1, `${rows[i].year}: covered flag`);
   }
 });
@@ -66,8 +49,8 @@ test('COVERAGE: the customer must generate more per MW than it is contracted to 
 test('at $50M/MW the book is UNCOVERED in this model, every single year', () => {
   const s = spacexSummary(run, { contractPriceMw: 50 });
   assert.equal(s.yearsCovered, 0,
-    'the diffusion ceiling keeps lab revenue below $50M/MW throughout');
-  assert.equal(s.yearsAtRisk, 5);
+    'the illustrative commercial provider revenue proxy is below the assumed rent');
+  assert.equal(s.yearsWithOperatingShortfall, 5);
   assert.ok(s.minCoverage < 0.6, `worst coverage should be badly short, got ${s.minCoverage}`);
 });
 
@@ -75,14 +58,14 @@ test('a price the customer CAN cover flips the book to covered', () => {
   // The floor on customer revenue across the run is the max coverable price.
   const coverable = coverableContractPrice(run);
   const s = spacexSummary(run, { contractPriceMw: coverable });
-  assert.equal(s.yearsAtRisk, 0, `at $${coverable.toFixed(1)}M/MW every year should cover`);
+  assert.equal(s.yearsWithOperatingShortfall, 0, `at $${coverable.toFixed(1)}M/MW every year should cover`);
   assert.ok(Math.abs(s.minCoverage - 1) < 1e-9, 'the binding year sits exactly at coverage 1.0');
 });
 
 test('coverableContractPrice is the MINIMUM customer revenue over the run, not the mean', () => {
   const coverable = coverableContractPrice(run);
-  const min = Math.min(...run.map(y => y.labRevPerMw));
-  const mean = run.reduce((a, y) => a + y.labRevPerMw, 0) / run.length;
+  const min = Math.min(...run.map(y => y.providerRevenuePerCommercialMw));
+  const mean = run.reduce((a, y) => a + y.providerRevenuePerCommercialMw, 0) / run.length;
   assert.ok(Math.abs(coverable - min) < 1e-9, 'must be the min');
   assert.ok(coverable < mean, 'and the min must be strictly below the mean here');
 });
@@ -99,55 +82,62 @@ test('PAYBACK is revenue-basis only -- it says nothing about whether the custome
   const rich = spacexSummary(run, { contractPriceMw: 50 });
   const capex = run[0].capexPerGw;
   assert.ok(rich.revenuePaybackYears < 1, 'payback looks great');
-  assert.equal(rich.yearsCovered, 0, 'and the counterparty still cannot pay');
+  assert.equal(rich.yearsCovered, 0, 'but modeled AI revenue does not cover rent');
   assert.ok(Math.abs(rich.revenuePaybackYears - capex / 50) < 1e-9);
 });
 
-test('the internal-use fallback floors the downside, it does not reach the contract price', () => {
+test('the illustrative internal-use value is below the assumed rental price', () => {
   const s = spacexSummary(run, { contractPriceMw: 50 });
   assert.equal(s.internalFallbackMw, HOARDER_INTERNAL_VALUE);
   assert.ok(HOARDER_INTERNAL_VALUE < 50,
-    'internal use is a floor well below the rental premium, not a substitute for it');
+    'the alternative-use assumption is below rent; it is not a guaranteed recovery');
   const rows = s.rows;
   assert.ok(rows[0].internalFallbackB < rows[0].revenueB,
     'falling back to internal use is a real haircut');
 });
 
-test('at-risk revenue is the shortfall, zero when covered', () => {
+test('operating shortfall is the shortfall, zero when covered', () => {
   const rows = spacexBook(run, { contractPriceMw: 50, gwPerYear: 4, termYears: 5 });
   for (const r of rows) {
-    if (r.covered) assert.equal(r.atRiskB, 0);
-    else assert.ok(Math.abs(r.atRiskB - r.revenueB * (1 - r.coverage)) < 1e-9,
-      `${r.year}: at-risk should be the uncovered fraction of revenue`);
+    if (r.covered) assert.equal(r.operatingShortfallB, 0);
+    else assert.ok(Math.abs(r.operatingShortfallB - r.revenueB * (1 - r.coverage)) < 1e-9,
+      `${r.year}: operating shortfall should be the uncovered fraction of revenue`);
   }
   const s = spacexSummary(run, { contractPriceMw: 50 });
-  assert.ok(s.totalAtRiskB > 0, 'a wholly uncovered book must report at-risk revenue');
-  assert.ok(s.totalAtRiskB < s.totalRevenueB, 'but not more than the book itself');
+  assert.ok(s.totalOperatingShortfallB > 0, 'a wholly uncovered book must report operating shortfall');
+  assert.ok(s.totalOperatingShortfallB < s.totalRevenueB, 'but not more than the book itself');
 });
 
 test('a zero or negative contract price cannot produce Infinity or NaN downstream', () => {
   for (const p of [0, -10]) {
     const s = spacexSummary(run, { contractPriceMw: p });
     assert.ok(Number.isFinite(s.totalRevenueB), `price ${p}: revenue`);
-    assert.ok(Number.isFinite(s.totalAtRiskB), `price ${p}: at-risk`);
-    assert.equal(s.yearsAtRisk, 0, `price ${p}: nothing to cover, so nothing at risk`);
+    assert.ok(Number.isFinite(s.totalOperatingShortfallB), `price ${p}: shortfall`);
+    assert.equal(s.yearsWithOperatingShortfall, 0, `price ${p}: nothing to cover, so no operating shortfall`);
   }
 });
 
-test('the spacex-bull preset makes a $50M/MW book coverable, and says what that costs', () => {
-  assert.ok('spacex-bull' in PRESETS, 'preset must exist');
+test('the provider-revenue sensitivity raises revenue coverage without asserting solvency', () => {
   const bull = simulate({ ...DEFAULT_INPUTS, ...PRESETS['spacex-bull'] }, 12345);
-  const s = spacexSummary(bull, { contractPriceMw: 50 });
-  assert.ok(s.yearsCovered >= 3,
-    `the whole point of the preset is that $50M/MW pencils, got ${s.yearsCovered}/5 years`);
-  // And it only pencils by assuming AI captures far more of the economy today.
-  const base = DEFAULT_INPUTS.captureRate;
-  assert.ok(PRESETS['spacex-bull'].captureRate > base * 2,
-    'it requires a materially higher capture rate than the sourced default');
+  const base = spacexSummary(run);
+  const changed = spacexSummary(bull);
+  assert.ok(changed.minCoverage > base.minCoverage);
+  assert.ok(changed.totalOperatingShortfallB < base.totalOperatingShortfallB);
 });
 
 test('SPACEX_DEFAULTS carry the reported rate and a multi-year term', () => {
   assert.equal(SPACEX_DEFAULTS.contractPriceMw, 50, 'the reported SpaceX rate');
   assert.ok(SPACEX_DEFAULTS.termYears >= 3, 'these are multi-year contracts');
   assert.ok(SPACEX_DEFAULTS.gwPerYear > 0);
+});
+
+// Catches confusing rental expense shortfall with expected loss or profit.
+test('operating shortfall measures only the modeled revenue gap', () => {
+  const rows = spacexBook([
+    { year: 2026, providerRevenuePerCommercialMw: 30 },
+    { year: 2027, providerRevenuePerCommercialMw: 60 },
+  ], { contractPriceMw: 50, gwPerYear: 2 });
+  assert.equal(rows[0].revenueB, 100);
+  assert.equal(rows[0].operatingShortfallB, 40);
+  assert.equal(rows[1].operatingShortfallB, 0);
 });

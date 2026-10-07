@@ -30,7 +30,7 @@
 })(typeof self !== 'undefined' ? self : this, function (rails, engine, presets, marketScenarios) {
 
 const { RAILS } = rails;
-const { impliedCreditDepthFor, hoarderRelease } = engine;
+const { impliedCreditDepthFor, hoarderRelease, spacexSummary } = engine;
 const { DEFAULT_INPUTS } = presets;
 const { MARKET_SCENARIOS } = marketScenarios;
 
@@ -56,7 +56,7 @@ function fmtGw(n) { return Number.isFinite(n) ? n.toFixed(1) : '—'; }
 // number, or they'll reconcile against the wrong one.
 const STATE_TABLE_COLUMNS = [
   { label: 'Year' },
-  { label: 'Demand' },
+  { label: 'New-build demand', title: 'Final-use expansion plus inventory investment, less released inventory.' },
   { label: 'EUV' },
   { label: 'Memory' },
   { label: 'Pkg' },
@@ -68,10 +68,10 @@ const STATE_TABLE_COLUMNS = [
   { label: '$B/GW' },
   { label: 'Credit' },
   { label: 'Rate' },
-  { label: 'Lab GW' },
+  { label: 'Lab-owned GW' },
   { label: 'Hoarder Got' },
-  { label: 'Inference Share' },
-  { label: 'Lab $/MW (ceiling)', title: 'Realized lab revenue per MW, and the diffusion ceiling -- the most the economy can absorb that year.' },
+  { label: 'Commercial share', title: 'Commercial inference capacity / (commercial inference + frontier research capacity).' },
+  { label: 'Provider $/commercial MW', title: 'Commercial provider revenue pool per commercial MW, after the illustrative regulatory channel. Not marginal customer revenue or willingness to pay.' },
 ];
 
 function stateTableHtml(run) {
@@ -79,13 +79,10 @@ function stateTableHtml(run) {
   const rows = run.map(y => {
     const ceilings = y.ceilings || {};
     const labRevCell = (() => {
-      if (!Number.isFinite(y.labRevPerMw)) return '—';
-      const rev = '$' + y.labRevPerMw.toFixed(0) + 'M';
-      const ceilingTxt = Number.isFinite(y.diffusionCeilingMw) ? '$' + y.diffusionCeilingMw.toFixed(0) + 'M' : '—';
-      const marker = y.diffusionBound
-        ? ' <span class="warn diffusion-bound" title="lab revenue hit the ceiling of what the economy can absorb this year">diffusion-bound</span>'
-        : '';
-      return `${rev} <span class="ceiling-note" title="diffusion ceiling this year">/ ceil ${ceilingTxt}</span>${marker}`;
+      if (!Number.isFinite(y.providerRevenuePerCommercialMw)) return '—';
+      const rev = '$' + y.providerRevenuePerCommercialMw.toFixed(0) + 'M';
+      const ceilingTxt = Number.isFinite(y.providerRevenuePoolPerMw) ? '$' + y.providerRevenuePoolPerMw.toFixed(0) + 'M' : '—';
+      return `${rev} <span class="ceiling-note" title="provider revenue pool before regulatory adjustment">/ pool ${ceilingTxt}</span>`;
     })();
     const cells = [
       y.year, fmtGw(y.demand), fmtGw(ceilings.euv), fmtGw(ceilings.memory),
@@ -96,16 +93,10 @@ function stateTableHtml(run) {
       Number.isFinite(y.capexPerGw) ? y.capexPerGw.toFixed(1) : '—',
       fmtB(y.credit),
       Number.isFinite(y.rate) ? (y.rate * 100).toFixed(1) + '%' : '—',
-      fmtGw(y.labGw), fmtGw(y.hoarderGot), fmtPct(y.inferenceShare), labRevCell,
+      fmtGw(y.labGw), fmtGw(y.hoarderGot), fmtPct(y.commercialCapacityShare), labRevCell,
     ];
-    // I7 fix (final review): this used to say "parameters are likely wrong."
-    // `clamped` fires whenever nextPrice hits the floorCost arbitrage shelf --
-    // at DEFAULT_INPUTS/seed 12345 that's 2029 (price 11.00 = floorCost
-    // exactly). That is the spec's stability defence #1 ENGAGING, not a sign
-    // something is misconfigured -- wording it as an error contradicted the
-    // header's own framing of 2029 as a legitimate finding.
-    const mark = y.clamped ? ' <span class="warn" title="price hit the floor-cost arbitrage shelf -- the model\'s stability defence engaging, not necessarily a parameter error">clamped</span>' : '';
-    const rowClass = [y.clamped ? 'row-clamped' : '', y.diffusionBound ? 'row-diffusion-bound' : '']
+    const mark = y.clamped ? ' <span class="warn" title="price hit the configured rental floor; supply may remain unused">clamped</span>' : '';
+    const rowClass = [y.clamped ? 'row-clamped' : '']
       .filter(Boolean).join(' ');
     return `<tr class="${rowClass}">` +
            cells.map((c, i) => `<td>${c}${i === 0 ? mark : ''}</td>`).join('') + '</tr>';
@@ -139,19 +130,10 @@ const NEW_GW_TARGET_IDS = new Set(['gw2026', 'gw2027', 'gw2028', 'gw2029']);
 // depth that would clear the target, or -- when something caps the outcome
 // regardless of credit -- what and how far.
 //
-// C1 fix (final review): that "what" can be DEMAND, and the phrasing must then
-// name a demand collapse rather than a supply rail. At DEFAULT_INPUTS the
-// 2029/95 miss is demand-limited: the diffusion ceiling cuts lab revenue below
-// the clearing price, so labs stop buying long before any rail or the capital
-// ceiling binds. The old wording read "memory-bound at 23.1 GW" in a year
-// whose memory ceiling was 87.0 GW, printed three columns away in the same
-// table.
-//
-// Wrapped defensively: an explanatory aside must never take down the
-// calibration panel.
+// Explain the active model's limiting factor, not a historical forecast.
 function limiterPhrase(limitingRail) {
   return limitingRail === 'demand'
-    ? 'demand-limited: labs cannot monetize at the clearing price'
+    ? 'demand-limited: segment budgets and adoption limit expansion at the opening price'
     : `${limitingRail}-bound`;
 }
 
@@ -183,15 +165,7 @@ function calibrationRows(run, targets, inputs = DEFAULT_INPUTS, seed) {
   });
 }
 
-// I5 fix (final review): the page header used to hardcode "disagrees with its
-// source in two places," naming only the 2029 GW and 2028 lab-share misses.
-// At DEFAULT_INPUTS, 5 of 12 targets actually fail (those two plus
-// price2028, cumCapex2029, cumCredit2029), and all four targets spec:758
-// designates as out-of-sample validators -- independent of the GW discussion
-// the model is fitted against -- are among the failures: 0 of 4 pass. A
-// hardcoded count goes stale the moment sliders move (as the "two places"
-// claim already had). Compute it here instead, from the same rows the table
-// renders, so the summary can never drift from what's actually displayed.
+// Counts come from the displayed rows and stay correct as inputs change.
 function calibrationSummary(rows) {
   const total = rows.length;
   const passing = rows.filter(r => r.pass).length;
@@ -204,12 +178,12 @@ function calibrationHtml(run, targets, inputs = DEFAULT_INPUTS, seed) {
   const rows = calibrationRows(run, targets, inputs, seed);
   const s = calibrationSummary(rows);
   const validatorNote = s.validatorsTotal > 0
-    ? ` Of the ${s.validatorsTotal} targets independent of the GW discussion (marked *) -- the strongest test, since the model was never fitted to them -- ${s.validatorsPassing} of ${s.validatorsTotal} pass.`
+    ? ` Of the ${s.validatorsTotal} historical comparison targets marked *, ${s.validatorsPassing} of ${s.validatorsTotal} pass. These comparisons do not validate the new segment assumptions.`
     : '';
   const summary = `<p class="cal-summary">${s.passing} of ${s.total} calibration targets pass at these inputs (${s.failing} miss).${validatorNote}</p>`;
   const rowsHtml = rows.map(r => `
     <tr class="${r.pass ? 'cal-pass' : 'cal-fail'}">
-      <td>${r.label}${r.outOfSample ? ' <span class="cal-oos" title="out-of-sample validator: independent of the GW discussion the model is fitted against">*</span>' : ''}</td>
+      <td>${r.label}${r.outOfSample ? ' <span class="cal-oos" title="historical comparison target; segment assumptions are not recalibrated">*</span>' : ''}</td>
       <td class="cal-source">${r.source}</td>
       <td class="cal-basis" title="units basis">${r.basis}</td>
       <td>${Number.isFinite(r.target) ? r.target : '—'}</td>
@@ -222,57 +196,21 @@ function calibrationHtml(run, targets, inputs = DEFAULT_INPUTS, seed) {
   </tr></thead><tbody>${rowsHtml}</tbody></table>`;
 }
 
-// $M/MW rungs, in a fixed, meaningful order: cost to build/operate < what a
-// commodity renter pays < what a scarcity-driven hoarder captures < what a
-// lab earns per MW < the marginal rate the single best end-user pays.
-//
-// This order is NOT enforced by a sort -- it is a claim about the model, and
-// the "ladder rungs ascend" test checks it for real, across every simulated
-// year, not just 2026.
-//
-// I2 fix (final review): the old flat `computePrice * 2.2` scarcity rung was
-// safe only while wtpFraction stayed below 1/2.2 ~= 0.45; the default STARTS
-// at 0.50 and rises to a 0.6 cap, so it was never actually safe, and it
-// inverted past lab revenue in 2028 ($55.4M vs $27.1M) and 2030. A five-year
-// "verified" table used to live in this comment -- by the time the inversion
-// was caught, only its 2026 row still matched the model. Don't trust a
-// comment for a live invariant; the test below is what actually checks it.
-//
-// Scarcity/hoarder is now derived from the engine's own hoarderRelease rather
-// than an unsourced render-layer multiplier: it reuses hoarderRelease with a
-// synthetic 1-GW stock to read off exactly the release FRACTION the engine
-// would apply at this year's price (hoarderRelease(state, price) returns
-// min(hoardedStock, hoardedStock * fraction); at hoardedStock = 1 that IS the
-// fraction), then places the rung that fraction of the way from commodity
-// rental up to lab revenue. HOARDER_RELEASE_MAX (0.6, engine.js) caps that
-// fraction, so the rung can reach at most 60% of the way to lab revenue --
-// it can never cross it, unlike the old multiplier. Below HOARDER_INTERNAL_
-// VALUE ($20M/MW) the fraction is 0 and the rung sits exactly on rental --
-// which is correct: a hoarder has no scarcity premium to extract when price
-// hasn't cleared their own internal-use value. This assumes labRevPerMw >=
-// computePrice, true at defaults across all five years; if a slider
-// combination ever inverts that base relationship the ladder's ascending
-// claim is broken regardless of this formula, and the test should, and will,
-// legitimately fail.
-//
-// The top rung (end-user capture) is DISPLAY ONLY and now a pinned constant,
-// not a multiple of a model output: Jane Street's $200-500M/MW is a marginal
-// rate measured on the single best user in the world, observed once,
-// independent of this model -- tying it to labRevPerMw (the old `* 4`) let it
-// drift with the simulation and land at $108/MW by 2028, BELOW its own
-// sourced floor, while still carrying a "Jane Street" tooltip. It must never
-// feed a calculation.
+// These rates have different economic denominators and need not ascend.
+// Provider revenue is not an upper bound on market rent. The scarcity estimate
+// uses the inherited inventory-release fraction and only a positive spread.
+// The marginal end-user example is historical editorial context, not an input.
 const JANE_STREET_MARGINAL_RATE_MW = 350; // midpoint of the sourced $200-500M/MW band
 
 function ladderRungs(y) {
   const ownCost = (y.capexPerGw / 5) + 1.5;   // 5yr amortization + power and opex
   const releaseFraction = hoarderRelease({ hoardedStock: 1 }, y.computePrice);
-  const scarcity = y.computePrice + (y.labRevPerMw - y.computePrice) * releaseFraction;
+  const scarcity = y.computePrice + Math.max(0, y.providerRevenuePerCommercialMw - y.computePrice) * releaseFraction;
   return [
     { id: 'cost',     label: 'Cost to own + operate', value: ownCost,          scales: true,  warn: '' },
     { id: 'rental',   label: 'Commodity rental',      value: y.computePrice,   scales: true,  warn: '' },
     { id: 'scarcity', label: 'Scarcity / hoarder',    value: scarcity,         scales: true,  warn: '' },
-    { id: 'lab',      label: 'Lab revenue',           value: y.labRevPerMw,    scales: true,  warn: '' },
+    { id: 'lab',      label: 'Provider revenue / commercial MW',           value: y.providerRevenuePerCommercialMw,    scales: true,  warn: '' },
     { id: 'enduser',  label: 'End-user capture',      value: JANE_STREET_MARGINAL_RATE_MW, scales: false,
       warn: 'Marginal rate on the best user in the world (Jane Street, sourced $200-500M/MW). Does not scale to a gigawatt.' },
   ];
@@ -394,18 +332,9 @@ function matrixHtml(run, scenarios, activeTab) {
 // ---------------------------------------------------------------------------
 // Panel: Anthropic vs OpenAI
 //
-// v2 computed gwEoy = base + share * actualNewGw off its own inline supply
-// model with hardcoded 0.25/0.30 shares. v3 emits `labGw` -- the COMBINED
-// Anthropic + OpenAI stock -- directly off the engine, so this splits that
-// instead of recomputing anything. The split shares themselves remain
-// editorial (reflecting v2's 0.25/0.30 GW ratio, renormalized to sum to 1 of
-// the combined figure: 0.30/(0.25+0.30) ~= 55% OpenAI, 45% Anthropic) and are
-// labelled as such in the panel -- they are not a model output.
-//
-// ARR figures, strategy text, and ARR trajectory notes are v2's hand-
-// maintained news content and are kept verbatim; they are not derived from
-// the simulation and must not be re-derived from it.
-// ---------------------------------------------------------------------------
+// An illustrative two-company split of aggregate lab-owned capacity. Actual
+// ownership includes other labs. Historical ARR and strategy text is editorial
+// material from the earlier dashboard, not refreshed or used in this engine.
 const ANTHROPIC_SHARE = 0.45; // editorial: renormalized from v2's 0.25/0.30 GW-share ratio
 const OPENAI_SHARE = 0.55;    // editorial: renormalized from v2's 0.25/0.30 GW-share ratio
 
@@ -456,7 +385,7 @@ function labComparisonHtml(run) {
     const raisedPct = (d.raised / maxRaised) * 100;
     return `<div class="company-card">
       <div class="company-name"><span class="company-dot ${d.dotClass}"></span>${d.name}</div>
-      <p class="lab-share-note">Editorial share of v3's combined labGw: ${fmtPct(share)} -- not a model output.</p>
+      <p class="lab-share-note">Editorial share of modeled lab-owned capacity: ${fmtPct(share)} -- not a model output.</p>
       <div class="bar-chart">
         ${gwBars}
         <div class="bar-row"><span class="bar-label">ARR</span><div class="bar-track"><div class="bar-fill ${d.barClass}" style="width:${arrPct}%">$${d.arr}B ARR</div></div></div>
@@ -467,7 +396,7 @@ function labComparisonHtml(run) {
     </div>`;
   }
 
-  return '<div class="comparison">'
+  return '<p class="pergw-note">Illustrative allocation of aggregate lab-owned capacity to two companies; actual ownership includes other labs. ARR and strategy text are historical editorial context, not refreshed inputs.</p><div class="comparison">'
     + companyCard('anthropic', 'anthropicGw', ANTHROPIC_SHARE)
     + companyCard('openai', 'openaiGw', OPENAI_SHARE)
     + '</div>';
@@ -479,7 +408,7 @@ function labComparisonHtml(run) {
 // v2's version used v1's broken formulas (labRevPerGw = revenueGw / (1 -
 // margin), and a "leverage ratio" dividing a one-time deployment cost by an
 // annuity-basis capacity cost). Neither is ported. This is rebuilt from v3's
-// own fields: capexPerGw, computePrice, clearingPrice, labRevPerMw.
+// own fields: capexPerGw, computePrice, clearingPrice, providerRevenuePerCommercialMw.
 //
 // The headline number: fab build-out (EUV tools + other wafer equipment +
 // cleanroom shell -- the annuity-basis rails, $B per GW/yr of tool capacity)
@@ -518,7 +447,7 @@ function perGwEconomics(y) {
   const ratio = allInPerGw > 0 ? amortizedFabPerGw / allInPerGw : NaN; // ratio between two bases -- never a sum
   return {
     fabCapex, amortizedFabPerGw, allInPerGw, ratio,
-    computePrice: y.computePrice, clearingPrice: y.clearingPrice, labRevPerMw: y.labRevPerMw,
+    computePrice: y.computePrice, clearingPrice: y.clearingPrice, providerRevenuePerCommercialMw: y.providerRevenuePerCommercialMw,
   };
 }
 
@@ -536,7 +465,7 @@ function perGwEconomicsHtml(y) {
     + `${fmtPctFine(info.ratio)} of its all-in cost structure.</p>`
     + row('Clearing price (prior-year basis, what this year\'s allocation used)', Number.isFinite(info.clearingPrice) ? '$' + info.clearingPrice.toFixed(0) + 'M/MW' : '—')
     + row('Compute price (newly cleared this year)', Number.isFinite(info.computePrice) ? '$' + info.computePrice.toFixed(0) + 'M/MW' : '—')
-    + row('Lab revenue per MW', Number.isFinite(info.labRevPerMw) ? '$' + info.labRevPerMw.toFixed(0) + 'M/MW' : '—', 'positive')
+    + row('Provider revenue per commercial MW', Number.isFinite(info.providerRevenuePerCommercialMw) ? '$' + info.providerRevenuePerCommercialMw.toFixed(0) + 'M/MW' : '—', 'positive')
     + '</div>';
 }
 
@@ -585,55 +514,127 @@ function bottleneckHtml(y) {
 }
 
 // ---------------------------------------------------------------------------
-// Panel: Diffusion (Jevons) Reality Check
-//
-// The model's headline finding, previously only a table column
-// (labRevPerMw / diffusionCeilingMw / diffusionBound in stateTableHtml): lab
-// revenue per MW is capped by what the addressable economy can actually
-// absorb. When that cap binds, lab willingness-to-pay falls below the
-// clearing price and lab demand collapses -- this is why 2029 lands at 22.7
-// GW against a stated 95, not a supply-side shortfall.
-// ---------------------------------------------------------------------------
-function diffusionRows(run) {
-  return run.map(y => ({
-    year: y.year,
-    labRevPerMw: y.labRevPerMw,
-    diffusionCeilingMw: y.diffusionCeilingMw,
-    headroom: Number.isFinite(y.diffusionCeilingMw) ? y.diffusionCeilingMw - y.labRevPerMw : NaN,
-    inferenceShare: y.inferenceShare,
-    diffusionBound: y.diffusionBound,
-  }));
+// Panel: Commercial provider revenue per commercial MW (diagnostic only).
+function providerRevenueRows(run) {
+  return run.map(y => ({ year: y.year, providerRevenuePerCommercialMw: y.providerRevenuePerCommercialMw,
+    providerRevenuePoolPerMw: y.providerRevenuePoolPerMw,
+    regulatoryReductionMw: y.providerRevenuePoolPerMw - y.providerRevenuePerCommercialMw,
+    commercialCapacityShare: y.commercialCapacityShare }));
 }
 
-function diffusionHtml(run) {
-  const rows = diffusionRows(run);
-  const head = ['Year', 'Lab $/MW', 'Diffusion ceiling', 'Headroom', 'Inference share', '']
-    .map(h => `<th>${h}</th>`).join('');
-  const body = rows.map(r => {
-    const marker = r.diffusionBound
-      ? ' <span class="warn diffusion-bound" title="lab revenue is capped by what the addressable economy can absorb this year">diffusion-bound</span>'
-      : '';
-    return `<tr data-year="${r.year}" data-diffusion-bound="${r.diffusionBound}" class="${r.diffusionBound ? 'dbound-row' : ''}">`
-      + `<td>${r.year}</td>`
-      + `<td>$${r.labRevPerMw.toFixed(0)}M</td>`
-      + `<td>${Number.isFinite(r.diffusionCeilingMw) ? '$' + r.diffusionCeilingMw.toFixed(0) + 'M' : '—'}</td>`
-      + `<td>${Number.isFinite(r.headroom) ? '$' + r.headroom.toFixed(0) + 'M' : '—'}</td>`
-      + `<td>${fmtPct(r.inferenceShare)}</td>`
-      + `<td>${marker}</td>`
-      + `</tr>`;
+function providerRevenueHtml(run) {
+  const body = providerRevenueRows(run).map(r => `<tr data-year="${r.year}"><td>${r.year}</td>`
+    + `<td>$${fmtGw(r.providerRevenuePerCommercialMw)}M</td><td>$${fmtGw(r.providerRevenuePoolPerMw)}M</td>`
+    + `<td>$${fmtGw(r.regulatoryReductionMw)}M</td><td>${fmtPct(r.commercialCapacityShare)}</td></tr>`).join('');
+  return `<p class="diffusion-note">Commercial model-provider revenue is one portion of adopted economic value. `
+    + `Revenue per commercial MW is a diagnostic, not a market-wide price ceiling or marginal customer revenue. `
+    + `Enterprise, research, and sovereign uses have separate compute budgets. Revenue does not establish profit.</p>`
+    + `<table class="diffusion-table"><thead><tr><th>Year</th><th>Provider $/commercial MW</th>`
+    + `<th>Before regulatory adjustment</th><th>Regulatory reduction</th><th>Commercial capacity share</th>`
+    + `</tr></thead><tbody>${body}</tbody></table>`;
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function segmentDemandHtml(y) {
+  const body = y.demandBreakdown.segments.map(s => `<tr data-segment="${s.id}">`
+    + `<td>${escapeHtml(s.label)}</td><td>${fmtGw(s.desiredGw)}</td><td>${fmtGw(s.requestedGw)}</td>`
+    + `<td>${fmtGw(y.allocation.bySegment[s.id])}</td><td>${fmtB(s.economicValueB)}</td>`
+    + `<td>${fmtB(s.providerRevenueB)}</td><td>${fmtB(s.computeBudgetB)}</td>`
+    + `<td>$${fmtGw(s.willingnessToPay)}M</td></tr>`).join('');
+  const routes = y.allocation.routes.map(r => `<tr><td>${escapeHtml(r.segment)}</td>`
+    + `<td>${escapeHtml(r.assetOwner)}</td><td>${escapeHtml(r.customer)}</td><td>${fmtGw(r.gw)}</td></tr>`).join('');
+  return `<p class="pergw-note">${y.year}: final-use expansion is counted once. Owner and customer rows below describe the same allocated GW. `
+    + `Economic value, provider revenue, and compute budget are overlapping flows; do not add them. Budgets are $B/year; bids are $M/MW/year. `
+    + `Requested demand and allocation use the opening price; the newly cleared price applies next year.</p>`
+    + `<table class="state-table"><thead><tr><th>Final use</th><th>Desired GW</th><th>Requested GW</th><th>Allocated GW</th>`
+    + `<th>Economic value</th><th>Provider revenue</th><th>Compute budget</th><th>Mean bid</th></tr></thead><tbody>${body}</tbody></table>`
+    + `<p class="pergw-note">Inventory construction: ${fmtGw(y.hoarderGot)} GW. Released to final uses: ${fmtGw(y.releasedGw)} GW. `
+    + `Unallocated inventory: ${fmtGw(y.hoardedStock)} GW. Strategic research and sovereign budgets are not additional modeled commercial revenue.</p>`
+    + deploymentHtml(y)
+    + `<details><summary>Ownership and contractual customers (same capacity)</summary><table class="state-table">`
+    + `<thead><tr><th>Final use</th><th>Asset owner</th><th>Contract customer</th><th>Allocated GW</th></tr></thead><tbody>${routes}</tbody></table></details>`;
+}
+
+function deploymentHtml(y) {
+  return y.demandBreakdown.segments.filter(s => s.deployment).map(s => {
+    const d = s.deployment;
+    const rows = d.modes.map(m => `<tr><td>${escapeHtml(m.label)}</td><td>${fmtPct(m.share)}</td>`
+      + `<td>${fmtGw(m.requiredGw)}</td><td>${fmtB(m.spendingB)}</td><td>${fmtB(m.computeBudgetB)}</td></tr>`).join('');
+    return `<details open><summary>${escapeHtml(s.label)}: deployment and workload</summary>`
+      + `<p class="pergw-note">Task index (opening 2026 = 100): desired ${fmtGw(d.taskIndex)}, served ${fmtGw(s.servedTaskIndex)}, unmet ${fmtGw(s.unmetTaskIndex)}. `
+      + `Required IT capacity: ${fmtGw(d.requiredGw)} GW; idle installed capacity: ${fmtGw(s.idleGw)} GW. Cost index: ${d.costIndex.toFixed(2)}; usage multiplier from lower costs: ${d.rebound.toFixed(2)}.</p>`
+      + `<table class="state-table"><thead><tr><th>Deployment</th><th>Task share</th><th>Required GW</th><th>Customer spending / year</th><th>Compute budget / year</th></tr></thead><tbody>${rows}</tbody></table>`
+      + `<p class="pergw-note">Frontier API receipts: ${fmtB(s.frontierRevenueB)}; managed open-model receipts: ${fmtB(s.managedRevenueB)}; direct GPU rentals: ${fmtB(s.gpuRentalB)}; owned infrastructure annual budget: ${fmtB(s.ownedInfrastructureB)}; direct operations: ${fmtB(s.directOperationsB)}. `
+      + `Provider-funded infrastructure (${fmtB(s.providerComputeBudgetB)}) is included in provider receipts (frontier API and managed open weights), not additional customer spending. These are budget-supported spending scenarios, not realized sales. `
+      + `Migration redistributes tasks within this final use. Capacity and compute budgets are pooled within each final use; existing hardware is assumed reusable. Ownership rows describe additions, not transfers of existing assets.</p></details>`;
   }).join('');
-  const note = `<p class="diffusion-note">Lab revenue per MW is capped by what the addressable economy can absorb `
-    + `(the diffusion ceiling). When that cap binds -- marked below -- lab willingness-to-pay falls below the `
-    + `clearing price and lab demand collapses. That mechanism, not a supply-side shortfall, is why 2029 lands at `
-    + `22.7 GW against a stated 95.</p>`;
-  return note + `<table class="diffusion-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
 }
 
-return { fmtB, fmtPct, fmtPctFine, fmtGw, stateTableHtml, calibrationRows, calibrationHtml, calibrationSummary,
+const SEGMENT_FIELDS = [
+  ['annualDemandGw', 'Annual task increment (baseline GW equivalent)', 0, 1000, 1],
+  ['demandGrowth', 'Annual increment growth', 0, 3, 0.05],
+  ['valueShare', 'Economic-pool share', 0, 1, 0.05],
+  ['adoptionRate', 'Adoption fraction', 0, 1, 0.01],
+  ['adoptionGrowth', 'Adoption growth/year', 0, 3, 0.05],
+  ['spendingShare', 'Initial all-in spending / economic value', 0, 1, 0.05],
+  ['apiShare', 'Initial frontier API task share', 0, 1, 0.05],
+  ['managedShare', 'Initial managed open-weight share', 0, 1, 0.05],
+  ['rentedShare', 'Initial rented self-hosting share', 0, 1, 0.05],
+  ['apiOwnedShare', 'Frontier API capacity owned by labs (remainder rented)', 0, 1, 0.05],
+  ['migrationRate', 'Fraction of remaining API tasks migrating / year', 0, 1, 0.05],
+  ['efficiencyGain', 'Annual reduction in compute / task', 0, 0.99, 0.05],
+  ['hardwareEfficiencyGain', 'Annual reduction in power / compute', 0, 0.99, 0.05],
+  ['reboundElasticity', 'Lower-cost usage response (0 = none)', 0, 1, 0.1],
+  ...['api', 'managed', 'rented', 'owned'].flatMap(id => [
+    [id + 'Intensity', id + ': relative compute / task', 0.01, 10, 0.01],
+    [id + 'Utilization', id + ': utilization', 0.01, 1, 0.01],
+    [id + 'Cost', id + ': all-in cost / task index', 0.01, 10, 0.01],
+    [id + 'ComputeFraction', id + ': spending on infrastructure', 0, 1, 0.05],
+  ]),
+  ['budgetB', 'Strategic compute budget ($B/year)', 0, 10000, 10],
+  ['budgetGrowth', 'Strategic budget growth/year', 0, 3, 0.05],
+];
+
+function segmentAssumptionsHtml(segments) {
+  const fieldHtml = (s, [key, label, min, max, step]) => {
+    if (s.apiShare === undefined && key === 'annualDemandGw') label = 'Desired new GW/year';
+    if (s.apiShare === undefined && key === 'demandGrowth') label = 'Expansion growth/year';
+    return `<label class="segment-field">${label}<input type="number" data-segment="${s.id}" data-field="${key}" `
+    + `value="${s[key]}" min="${min}" max="${max}" step="${step}" aria-label="${escapeHtml(s.label + ': ' + label)}"></label>`;
+  };
+  const isCoefficient = key => /(?:Intensity|Utilization|Cost|ComputeFraction)$/.test(key);
+  return segments.map(s => {
+    const fields = SEGMENT_FIELDS.filter(([key]) => key in s);
+    const basic = fields.filter(([key]) => !isCoefficient(key)).map(f => fieldHtml(s, f)).join('');
+    const coefficients = fields.filter(([key]) => isCoefficient(key)).map(f => fieldHtml(s, f)).join('');
+    const advanced = coefficients ? `<details><summary>Deployment costs, compute intensity and utilization</summary>${coefficients}</details>` : '';
+    const deploymentNote = coefficients ? ' Owned task share is the remainder. Migration destinations: 30% managed, 50% rented, 20% owned. Costs include operations; intensity assumes comparable task quality.' : '';
+    return `<fieldset class="control-card"><legend>${escapeHtml(s.label)}</legend>${basic}${advanced}`
+      + `<p class="control-note">Initial capacity: ${fmtGw(s.initialGw)} GW. All splits and budgets are illustrative.${deploymentNote}</p></fieldset>`;
+  }).join('');
+}
+
+function spacexHtml(run) {
+  const s = spacexSummary(run);
+  const body = s.rows.map(r => `<tr><td>${r.year}</td><td>${fmtGw(r.bookGw)}</td><td>${fmtB(r.revenueB)}</td>`
+    + `<td>${Number.isFinite(r.coverage) ? r.coverage.toFixed(2) + '×' : '—'}</td><td>${fmtB(r.operatingShortfallB)}</td></tr>`).join('');
+  return `<p class="pergw-note">Hypothetical $50M/MW/year rental book: 4 GW added annually, five-year terms. `
+    + `Revenue payback: ${s.revenuePaybackYears.toFixed(2)} years (construction cost / annual rental rate), before expenses and collection. `
+    + `Operating shortfall: ${fmtB(s.totalOperatingShortfallB)} across the modeled years. `
+    + `This does not establish profitability, liquidity, or solvency and is not an expected credit loss. `
+    + `The customer-revenue proxy uses provider revenue per commercial MW; actual customers and contracts can differ.</p>`
+    + `<table class="state-table"><thead><tr><th>Year</th><th>Contracted GW</th><th>Rental revenue</th><th>Revenue coverage</th>`
+    + `<th>Operating shortfall</th></tr></thead><tbody>${body}</tbody></table>`;
+}
+
+return { segmentDemandHtml, segmentAssumptionsHtml, spacexHtml, fmtB, fmtPct, fmtPctFine, fmtGw, stateTableHtml, calibrationRows, calibrationHtml, calibrationSummary,
          ladderRungs, ladderHtml, marginMigrationHtml,
          matrixTabForLimiter, railMarginExpansions, matrixHtml,
          labSplit, labComparisonHtml,
          fabCapexPerGwYr, perGwEconomics, perGwEconomicsHtml,
          bottleneckSegments, bottleneckHtml,
-         diffusionRows, diffusionHtml };
+         providerRevenueRows, providerRevenueHtml };
 });

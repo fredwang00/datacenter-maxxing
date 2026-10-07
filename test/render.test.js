@@ -6,7 +6,7 @@ const { stateTableHtml, calibrationRows, calibrationHtml, ladderRungs, ladderHtm
         labSplit, labComparisonHtml,
         fabCapexPerGwYr, perGwEconomics, perGwEconomicsHtml,
         bottleneckSegments, bottleneckHtml,
-        diffusionRows, diffusionHtml } = require('../docs/js/render.js');
+        providerRevenueRows, providerRevenueHtml } = require('../docs/js/render.js');
 const { simulate } = require('../docs/js/engine.js');
 const { DEFAULT_INPUTS, CALIBRATION_TARGETS } = require('../docs/js/presets.js');
 const { RAILS } = require('../docs/js/rails.js');
@@ -24,10 +24,6 @@ test('state table shows the limiter per year', () => {
   for (const y of run) assert.ok(html.toLowerCase().includes(y.limiter.toLowerCase()));
 });
 
-// C1 fix (final review): the state table's job here is to NOT name a supply
-// rail in a year that was demand-limited. 2029 at defaults is the case that
-// went wrong -- it printed "capital" beside a demand of 22.7 and a capital
-// ceiling of 60.3.
 test('a demand-limited year is labelled demand, not whichever ceiling is lowest', () => {
   const y = run.find(r => r.limiter === 'demand');
   assert.ok(y, 'DEFAULT_INPUTS/seed 12345 should have at least one demand-limited year (2029)');
@@ -47,15 +43,6 @@ test('clamped years are visibly marked, not hidden', () => {
   assert.ok(stateTableHtml(fake).includes('clamped'), 'a clamped year must be visibly marked');
 });
 
-// I7 fix (final review): `clamped` is NOT a fixture-only case -- at
-// DEFAULT_INPUTS/seed 12345, 2029's nextPrice hits floorCost (11.00 = 11.00)
-// exactly. A comment near the diffusionBound test below used to claim
-// clamped "genuinely never fires at defaults," which was false and, worse,
-// the marker's own title text called it a sign "parameters are likely
-// wrong" -- but hitting the arbitrage floor is the model's stability defence
-// #1 engaging, the same kind of legitimate finding the header calls 2029 GW
-// and 2028 lab share. This tests the REAL run, not a synthetic fixture, and
-// pins the softened wording.
 test('clamped genuinely fires at DEFAULT_INPUTS (2029), and is not worded as an error', () => {
   const clampedYears = run.filter(y => y.clamped);
   assert.ok(clampedYears.length > 0, 'DEFAULT_INPUTS/seed 12345 should have a clamped year (2029)');
@@ -76,10 +63,6 @@ test('calibration rows compute deviation against every target', () => {
   }
 });
 
-// I4 fix (final review): presence/finiteness checks like the one above cannot
-// catch an inverted SIGN -- inverting deviation to (target - actual) / target
-// made 2029 read +76.1% ("the model overshoots Dylan") when the model
-// actually undershoots by that much. Pin both the sign and the formula.
 test('calibration deviation sign is (actual - target) / target, not inverted', () => {
   const rows = calibrationRows(run, CALIBRATION_TARGETS);
   const gw2029 = rows.find(r => r.id === 'gw2029');
@@ -91,10 +74,6 @@ test('calibration deviation sign is (actual - target) / target, not inverted', (
     `deviation ${gw2029.deviation} != (actual - target) / target = ${expected}`);
 });
 
-// I4 fix (final review): reads each target's `actual` against the field the
-// calibration target is actually documented to mean (targetActual's switch
-// in render.js), reconstructed independently here so a swapped case (e.g.
-// capex2028 silently reading cumulativeCapex instead of capex) is caught.
 test('every calibration row reads its documented field, not a swapped one', () => {
   const rows = calibrationRows(run, CALIBRATION_TARGETS);
   const y = Object.fromEntries(run.map(yy => [yy.year, yy]));
@@ -113,8 +92,6 @@ test('every calibration row reads its documented field, not a swapped one', () =
   }
 });
 
-// I4 fix (final review): fmtPct dropping its ×100 rendered 52% as "1%"
-// (0.52.toFixed(0) rounds to "1").
 test('fmtPct multiplies by 100 before formatting', () => {
   assert.equal(fmtPct(0.52), '52%');
   assert.notEqual(fmtPct(0.52), '1%');
@@ -125,24 +102,14 @@ test('calibration output declares each target units basis', () => {
   assert.ok(html.includes('itLoad') || html.includes('IT load'), 'basis must be visible');
 });
 
-// I5 fix (final review): the page header used to hardcode "disagrees ... in
-// two places" while 5 of 12 targets actually fail at DEFAULT_INPUTS, and all
-// four out-of-sample validators (spec:758) are among the failures. The panel
-// must state real counts, computed from the same rows it renders, not a
-// number that can go stale the moment sliders move.
-test('calibration panel states the real pass/fail count, not a hardcoded one', () => {
+test('calibration summary counts passes from data rather than a fixed forecast', () => {
   const { calibrationSummary } = require('../docs/js/render.js');
-  const rows = calibrationRows(run, CALIBRATION_TARGETS);
-  const s = calibrationSummary(rows);
-  assert.equal(s.total, 12);
-  assert.equal(s.passing, 7, 'at DEFAULT_INPUTS/seed 12345, 7 of 12 targets pass');
-  assert.equal(s.failing, 5, 'at DEFAULT_INPUTS/seed 12345, 5 of 12 targets fail');
-  assert.equal(s.validatorsTotal, 4, 'spec:758 designates exactly 4 out-of-sample validators');
-  assert.equal(s.validatorsPassing, 0, 'none of the 4 out-of-sample validators pass at DEFAULT_INPUTS');
-
-  const html = calibrationHtml(run, CALIBRATION_TARGETS);
-  assert.ok(html.includes('7 of 12'), 'the passing count must be visible in the rendered panel');
-  assert.ok(/0 of 4/.test(html), 'the out-of-sample validator count must be stated plainly, not hidden');
+  const summary = calibrationSummary([{ pass: true, outOfSample: true }, { pass: false }, { pass: false, outOfSample: true }]);
+  assert.deepEqual(summary, { total: 3, passing: 1, failing: 2, validatorsTotal: 2, validatorsPassing: 1 });
+  const targets = [{ id: 'gw2026', year: 2026, target: 10, tolerance: 0.01, label: 'GW', basis: 'none' },
+    { id: 'gw2027', year: 2027, target: 10, tolerance: 0.01, label: 'GW', basis: 'none' }];
+  const html = calibrationHtml([{ year: 2026, newGw: 10 }, { year: 2027, newGw: 20 }], targets);
+  assert.ok(html.includes('1 of 2'));
 });
 
 test('ladder top rung is flagged as non-scaling', () => {
@@ -152,28 +119,13 @@ test('ladder top rung is flagged as non-scaling', () => {
   assert.ok(top.warn && top.warn.length > 0);
 });
 
-// CORRECTION 1: the brief's implementation sorted this array, making the
-// assertion below tautological. With the sort removed, this is a real claim
-// about the model. It could legitimately fail under a different slider
-// combination; that is the point.
-//
-// I2 fix (final review): this used to check `run[0]` (2026) only. The old
-// flat `computePrice * 2.2` scarcity rung inverted past lab revenue in 2028
-// and 2030 at DEFAULT_INPUTS/seed 12345 -- a single-year check could not have
-// caught it. Every simulated year must hold, not just the first.
-test('ladder rungs ascend from cost to end-user, every simulated year', () => {
-  for (const y of run) {
-    const rungs = ladderRungs(y);
-    for (let i = 1; i < rungs.length; i++) {
-      assert.ok(rungs[i].value >= rungs[i - 1].value,
-        `${y.year}: rung ${rungs[i].id} (${rungs[i].value.toFixed(1)}) below ${rungs[i - 1].id} (${rungs[i - 1].value.toFixed(1)})`);
-    }
-  }
+test('economic rates keep provider revenue below rental price when the scenario says so', () => {
+  const rungs = ladderRungs({ ...run[0], providerRevenuePerCommercialMw: 3, computePrice: 25 });
+  assert.equal(rungs.find(r => r.id === 'lab').value, 3);
+  assert.equal(rungs.find(r => r.id === 'rental').value, 25);
+  assert.ok(rungs.find(r => r.id === 'scarcity').value >= 25);
 });
 
-// I4 fix (final review): normalising sparklines to the LAST year instead of
-// the FIRST inverts every one of them (a rail that got 4x more expensive
-// would read as if it fell to a quarter of its start). Pin the direction.
 test('margin sparkline normalises to the FIRST year, not the last', () => {
   const fake = run.map(y => ({ ...y, railPrice: { ...y.railPrice } }));
   fake[0].railPrice.servers = 10;
@@ -196,27 +148,13 @@ test('renderers emit strings and never throw on a real run', () => {
   }
 });
 
-// CORRECTION 2: diffusionBound is the single most valuable model output --
-// lab revenue hitting the ceiling of what the economy can absorb -- and must
-// be a visible marker on the affected year, not buried in a raw number.
-//
-// Fix round 3 (Task 11): fix rounds 1-2 (corrected captureRate, then the
-// priceDamp smooth-tail fix) mean DEFAULT_INPUTS/seed 12345 now genuinely
-// binds the diffusion ceiling in 2027-2029 -- this no longer needs a faked
-// field to exercise. (I7 fix, final review: `clamped` ALSO genuinely fires
-// at defaults, in 2029 -- see the dedicated test above. An earlier version of
-// this comment claimed the opposite.)
-test('diffusionBound is surfaced as a visible marker on the affected year', () => {
-  const boundYears = run.filter(y => y.diffusionBound);
-  assert.ok(boundYears.length > 0, 'DEFAULT_INPUTS should bind the diffusion ceiling in at least one real year');
+test('state table labels provider revenue separately from lab ownership', () => {
   const html = stateTableHtml(run);
-  assert.ok(html.includes('diffusion-bound'), 'a diffusion-bound year must be visibly flagged');
+  assert.ok(html.includes('Lab-owned GW'));
+  assert.ok(html.includes('Provider $/commercial MW'));
 });
 
 test('state table distinguishes the allocation price from the newly cleared price', () => {
-  // Fix round 3 (Task 11): allocate() runs on the PRIOR year's price, not the
-  // one emitted as computePrice -- an auditor reconciling labShareOfNew needs
-  // both, labeled, or they'll recompute against the wrong number.
   const html = stateTableHtml(run);
   assert.ok(/alloc price/i.test(html), 'the allocation price must be labeled distinctly from the newly cleared price');
 });
@@ -226,78 +164,41 @@ test('state table surfaces hoarderGot per year', () => {
   assert.ok(/hoarder/i.test(html), 'hoarderGot must appear in the state table');
 });
 
-// CORRECTION 3: the 2029 GW target (95) is a deliberate miss at DEFAULT_INPUTS
-// -- the calibration panel must explain why via impliedCreditDepthFor, not
-// just flag red.
-//
-// C1 fix (final review): this test USED to require the explanation to say
-// "memory" and "23.1" -- i.e. it pinned the false cause in place. 2029's memory
-// ceiling is 87.0 GW; the 22.7 GW cap has nothing to do with memory. The
-// explanation must now name the demand collapse, and must NOT name a supply
-// rail.
-//
-// I8 fix: the seed is threaded through so the explanation describes the SAME
-// draw as the `actual` column beside it (seed 12345 -> 22.7; the old unseeded
-// call used makeRng(1) -> 23.1).
-test('calibration panel explains an unreachable GW miss as demand-limited, naming no supply rail', () => {
-  const rows = calibrationRows(run, CALIBRATION_TARGETS, DEFAULT_INPUTS, 12345);
-  const miss = rows.find(r => r.id === 'gw2029');
-  assert.equal(miss.pass, false, 'the 2029 GW target is a deliberate miss at DEFAULT_INPUTS');
-  assert.ok(typeof miss.explanation === 'string' && miss.explanation.length > 0,
-    'a missed GW target must carry an explanation');
-  assert.ok(miss.explanation.includes('demand-limited'), 'must name the demand collapse');
-  assert.ok(/monetize/.test(miss.explanation), 'must say WHY demand collapsed');
-  for (const rail of ['memory', 'euv', 'package', 'power', 'capital']) {
-    assert.ok(!miss.explanation.includes(rail),
-      `must not blame '${rail}': 2029 sits below every supply ceiling`);
-  }
-  // The figure must match the displayed run, not a different draw.
-  assert.ok(miss.explanation.includes('22.7'),
-    `must surface the same GW the panel displays (${miss.actual.toFixed(1)}), got: ${miss.explanation}`);
-  assert.ok(Math.abs(miss.actual - 22.7) < 0.05, `actual ${miss.actual}`);
-
-  const html = calibrationHtml(run, CALIBRATION_TARGETS, DEFAULT_INPUTS, 12345);
-  assert.ok(html.includes('unreachable'));
-  assert.ok(html.includes('demand-limited'));
+test('source-comparison miss names segment budgets rather than blaming a supply rail', () => {
+  const miss = calibrationRows(run, CALIBRATION_TARGETS, DEFAULT_INPUTS, 12345).find(r => r.id === 'gw2029');
+  assert.equal(miss.pass, false);
+  assert.ok(miss.explanation.includes('demand-limited'));
+  assert.ok(miss.explanation.includes('segment budgets'));
+  assert.ok(miss.explanation.includes(miss.actual.toFixed(1)));
+  assert.ok(!miss.explanation.includes('memory-bound'));
 });
 
-test('calibration explanation reports required credit depth when a miss is reachable', () => {
-  // Confirmed at seed 12345: impliedCreditDepthFor(20, 2029, DEFAULT_INPUTS,
-  // 12345) -> { reachable: true, creditMarketDepth: ~0, limitingRail: 'demand' }.
-  // 20 GW sits just inside 2029's 22.7 GW of demand, and DEFAULT_INPUTS'
-  // ecosystemCashFlow alone already funds it -- no credit-market depth needed.
-  const reachableTarget = { id: 'gw2029', label: '2029 new GW (test)', source: 'test',
-    basis: 'none', year: 2029, target: 20, tolerance: 0.01 };
-  const rows = calibrationRows(run, [reachableTarget], DEFAULT_INPUTS, 12345);
-  assert.equal(rows[0].pass, false);
-  assert.ok(rows[0].explanation.includes('reachable at'), 'must state the reachable-branch framing');
-  assert.ok(rows[0].explanation.includes('demand-limited'),
-    'confirmed limitingRail for the 20GW/2029 case: even at zero credit depth, demand is what runs out');
+test('source-comparison explanation reports reachable credit requirement', () => {
+  const inputs = { ...DEFAULT_INPUTS, addressableValueB: 420000, ecosystemCashFlow: 0, creditMarketDepth: 50 };
+  const limited = simulate(inputs, 12345);
+  const target = { id: 'gw2026', label: 'GW', basis: 'none', year: 2026, target: 10, tolerance: 0.01 };
+  const row = calibrationRows(limited, [target], inputs, 12345)[0];
+  assert.ok(row.explanation.includes('$382.0B/yr'));
+  assert.ok(row.explanation.includes('capital-bound'));
 });
 
-// I8 fix (final review): a seed mismatch between the panel's numbers and its
-// explanation is invisible unless something pins it. makeRng(1) yields 23.14 GW
-// for the 2029 case where 12345 yields 22.70, so an unseeded call is detectable.
-test('the miss explanation is computed from the seed it was given, not a default draw', () => {
-  const at12345 = calibrationRows(run, CALIBRATION_TARGETS, DEFAULT_INPUTS, 12345)
-    .find(r => r.id === 'gw2029').explanation;
-  const at1 = calibrationRows(run, CALIBRATION_TARGETS, DEFAULT_INPUTS, 1)
-    .find(r => r.id === 'gw2029').explanation;
-  assert.notEqual(at12345, at1, 'the seed must actually reach impliedCreditDepthFor');
-  assert.ok(at12345.includes('22.7'), at12345);
-  assert.ok(at1.includes('23.1'), at1);
+test('source-comparison explanations use the same seed as the displayed run', () => {
+  const first = simulate(DEFAULT_INPUTS, 1);
+  const second = simulate(DEFAULT_INPUTS, 12345);
+  const a = calibrationRows(first, CALIBRATION_TARGETS, DEFAULT_INPUTS, 1).find(r => r.id === 'gw2029');
+  const b = calibrationRows(second, CALIBRATION_TARGETS, DEFAULT_INPUTS, 12345).find(r => r.id === 'gw2029');
+  assert.ok(a.explanation.includes(a.actual.toFixed(1)));
+  assert.ok(b.explanation.includes(b.actual.toFixed(1)));
+  assert.notEqual(a.explanation, b.explanation);
 });
 
-test('a passing GW target carries no miss explanation', () => {
-  const rows = calibrationRows(run, CALIBRATION_TARGETS);
-  const hit = rows.find(r => r.id === 'gw2026');
-  assert.equal(hit.pass, true);
-  assert.equal(hit.explanation, null);
+test('a passing source-comparison target carries no miss explanation', () => {
+  const target = { id: 'gw2026', label: 'GW', year: 2026, target: 10, tolerance: 0.01 };
+  const row = calibrationRows([{ year: 2026, newGw: 10 }], [target])[0];
+  assert.equal(row.pass, true);
+  assert.equal(row.explanation, null);
 });
 
-// ---------------------------------------------------------------------------
-// v2 port: Stock Sensitivity Matrix
-// ---------------------------------------------------------------------------
 
 test('matrix auto-selects the documented tab for each limiter', () => {
   assert.equal(matrixTabForLimiter('euv'), 'euv');
@@ -349,9 +250,6 @@ test('matrix panel annotates the rail with the largest margin expansion across t
   assert.ok(html.includes(top.ratio.toFixed(2) + 'x'), 'the expansion ratio must be shown');
 });
 
-// ---------------------------------------------------------------------------
-// v2 port: Anthropic vs OpenAI
-// ---------------------------------------------------------------------------
 
 test('the Anthropic/OpenAI split sums to labGw for every simulated year', () => {
   const split = labSplit(run);
@@ -371,10 +269,11 @@ test('each share is applied to the right company, not swapped', () => {
   }
 });
 
-test('labGw trajectory matches v3\'s combined stock across 2026-2030', () => {
-  const split = labSplit(run);
-  const expected = [20.0, 54.5, 87.1, 87.1, 108.9];
-  split.forEach((s, i) => assert.ok(Math.abs(s.labGw - expected[i]) < 0.1, `${s.year}: labGw ${s.labGw} != ~${expected[i]}`));
+test('lab comparison consumes ownership capacity without substituting commercial workload GW', () => {
+  const rows = labSplit([{ year: 2026, labGw: 10 }, { year: 2027, labGw: 20 }]);
+  assert.equal(rows[0].anthropicGw, 4.5);
+  assert.equal(rows[1].anthropicGw, 9);
+  assert.equal(rows[1].openaiGw, 11);
 });
 
 test('lab comparison panel shows the full trajectory, not just one year, and keeps v2\'s editorial text verbatim', () => {
@@ -388,16 +287,12 @@ test('lab comparison panel shows the full trajectory, not just one year, and kee
   assert.ok(/editorial/i.test(html), 'the split must be labelled editorial, not model output');
 });
 
-// ---------------------------------------------------------------------------
-// v2 port: Per-Gigawatt Economics -- the amortization result
-// ---------------------------------------------------------------------------
 
-test('amortization ratio is ~1.57% at DEFAULT_INPUTS 2026, per the spec\'s stated finding', () => {
-  const info = perGwEconomics(run[0]);
-  assert.ok(Math.abs(info.fabCapex - 6.0) < 0.01, `fab capex ${info.fabCapex} should be ~$6B`);
-  assert.ok(Math.abs(info.amortizedFabPerGw - 0.6) < 0.01, `amortized fab capex ${info.amortizedFabPerGw} should be ~$0.6B/GW`);
-  assert.ok(Math.abs(info.allInPerGw - 38.1) < 0.1, `all-in capexPerGw ${info.allInPerGw} should be ~$38.1B/GW`);
-  assert.ok(Math.abs(info.ratio - 0.0157) < 0.001, `ratio ${info.ratio} should be ~1.57%`);
+test('fab amortization uses its own annuity basis and the supplied construction cost', () => {
+  const info = perGwEconomics({ ...run[0], capexPerGw: 40 });
+  assert.ok(Math.abs(info.fabCapex - 6) < 1e-8);
+  assert.ok(Math.abs(info.amortizedFabPerGw - 0.6) < 1e-8);
+  assert.ok(Math.abs(info.ratio - 0.015) < 1e-8);
 });
 
 test('the amortization ratio is computed from annuity rails, not hardcoded', () => {
@@ -437,9 +332,6 @@ test('per-GW economics panel labels both bases explicitly so the ratio cannot be
   assert.ok(!/revenueGw \/ \(1 - margin\)/.test(html), 'v1/v2\'s broken labRevPerGw formula must not be ported');
 });
 
-// ---------------------------------------------------------------------------
-// v2 port: Bottleneck Severity
-// ---------------------------------------------------------------------------
 
 test('bottleneck segment widths track railTightness', () => {
   const base = { railTightness: { euv: 1, memory: 1, package: 1, power: 1 } };
@@ -474,31 +366,20 @@ test('bottleneck panel excludes capital -- it is a financial ceiling, not a phys
   assert.ok(!/seg-capital/.test(html));
 });
 
-// ---------------------------------------------------------------------------
-// v2 port: Diffusion (Jevons) Reality Check
-// ---------------------------------------------------------------------------
 
-test('diffusion panel marks exactly the years where diffusionBound is true', () => {
-  const rows = diffusionRows(run);
-  for (const r of rows) {
-    const y = run.find(x => x.year === r.year);
-    assert.equal(r.diffusionBound, y.diffusionBound, `${r.year}: diffusionBound must match the engine's own flag`);
-  }
-  const boundYears = rows.filter(r => r.diffusionBound).map(r => r.year);
-  assert.deepEqual(boundYears, [2027, 2028, 2029], 'DEFAULT_INPUTS/seed 12345 binds the ceiling in 2027-2029');
-
-  const html = diffusionHtml(run);
-  for (const r of rows) {
-    const expected = `data-year="${r.year}" data-diffusion-bound="${r.diffusionBound}"`;
-    assert.ok(html.includes(expected), `${r.year} must be marked data-diffusion-bound="${r.diffusionBound}"`);
-  }
+test('provider diagnostic shows the regulatory reduction without claiming a demand ceiling', () => {
+  const fixture = [{ year: 2026, providerRevenuePerCommercialMw: 8, providerRevenuePoolPerMw: 10, commercialCapacityShare: 0.6 }];
+  const rows = providerRevenueRows(fixture);
+  assert.equal(rows[0].regulatoryReductionMw, 2);
+  const html = providerRevenueHtml(fixture);
+  assert.ok(html.includes('$8.0M') && html.includes('$10.0M') && html.includes('$2.0M'));
+  assert.ok(html.includes('60%'));
 });
 
-test('diffusion panel states the mechanism: headroom, and what binding means for demand', () => {
-  const html = diffusionHtml(run);
-  assert.ok(/headroom/i.test(html));
-  assert.ok(/willingness-to-pay/i.test(html) || /clearing price/i.test(html));
-  assert.ok(html.includes('22.7'), 'must connect the mechanism to the 2029 finding');
+test('provider diagnostic explains its limited interpretation', () => {
+  const html = providerRevenueHtml(run);
+  assert.ok(html.includes('not a market-wide price ceiling'));
+  assert.ok(html.includes('separate compute budgets'));
 });
 
 test('renderers for the five ported panels emit strings and never throw on a real run', () => {
@@ -508,7 +389,7 @@ test('renderers for the five ported panels emit strings and never throw on a rea
     () => labComparisonHtml(run),
     () => perGwEconomicsHtml(run[0]),
     () => bottleneckHtml(run[0]),
-    () => diffusionHtml(run),
+    () => providerRevenueHtml(run),
   ]) {
     const out = fn();
     assert.equal(typeof out, 'string');
