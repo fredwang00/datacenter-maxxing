@@ -1,3 +1,20 @@
+---
+id: dcm:spec/2026-08-26-datacenter-dashboard-v3
+type: spec
+status: current
+repo: datacenter-modeling
+created: 2026-08-26
+updated: 2026-10-04
+tags: [dashboard, euv-ceiling, capital-rails, design]
+links:
+  - repo: earnings-call-analyzer
+    path: docs/specs/2026-10-04-mag7-capex-evidence-design.md
+    relation: transcript-sourced-calibration-targets-should-cite-eca-claim-ids
+  - repo: datacenter-modeling
+    path: docs/superpowers/specs/2026-03-17-datacenter-dashboard-v2-design.md
+    relation: supersedes
+---
+
 # Datacenter Economics Dashboard v3 — Design Spec
 
 ## Goal

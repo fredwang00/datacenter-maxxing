@@ -1,83 +1,51 @@
 const { test } = require('node:test');
-const assert = require('node:assert');
-const { initialState, stepMonetization, diffusionCeiling, makeRng, regStopFactor } = require('../docs/js/engine.js');
+const assert = require('node:assert/strict');
+const { initialState, stepMonetization, makeRng, regStopFactor, simulate } = require('../docs/js/engine.js');
 const { DEFAULT_INPUTS } = require('../docs/js/presets.js');
 
-test('DIFFUSION CEILING BITES: revenue cannot exceed addressable value', () => {
-  const s = initialState(DEFAULT_INPUTS);
-  s.labGw = 100;                 // Dylan's 2028 figure
-  s.labRevPerMw = 70;            // and his revenue figure
-  const cap = diffusionCeiling(s, DEFAULT_INPUTS);
-  assert.ok(cap < 70, `at 100 GW x $70M/MW the ceiling must bind, got cap ${cap}`);
+test('commercial revenue per MW divides the adopted provider pool by commercial capacity', () => {
+  const inputs = { ...DEFAULT_INPUTS, addressableValueB: 1000,
+    demandSegments: DEFAULT_INPUTS.demandSegments.map(s => s.id === 'commercial'
+      ? { ...s, valueShare: 0.5, adoptionRate: 0.2, apiShare: 1, managedShare: 0, rentedShare: 0, spendingShare: 0.25 } : s) };
+  const state = initialState(inputs);
+  state.segmentCapacityGw.commercial = 10;
+  state.providerRevenueFactor = 0.8;
+  const r = stepMonetization(state, inputs, 2026);
+  assert.equal(r.commercialProviderRevenuePoolB, 25); // 1000 × .5 × .2 × .25
+  assert.equal(r.commercialProviderRevenueB, 20); // 25 × .8
+  assert.equal(r.providerRevenuePerCommercialMw, 2); // $20B / 10 GW
+  assert.equal(r.providerRevenuePoolPerMw, 2.5);
 });
 
-test('diffusion conflict is reported, not silently swallowed', () => {
-  const s = initialState(DEFAULT_INPUTS);
-  s.labGw = 100;
-  s.labRevPerMw = 70;
-  const r = stepMonetization(s, DEFAULT_INPUTS, makeRng(1));
-  assert.equal(r.diffusionBound, true, 'must flag that Dylan cannot have both numbers');
-});
-
-test('inference share declines — the non-consensus call', () => {
-  const s = initialState(DEFAULT_INPUTS);
-  const r = stepMonetization(s, DEFAULT_INPUTS, makeRng(1));
-  assert.ok(r.inferenceShare < s.inferenceShare);
-  assert.ok(r.inferenceShare > 0);
-});
-
-test('research compute compounds capability', () => {
-  const s = initialState(DEFAULT_INPUTS);
-  const r = stepMonetization(s, DEFAULT_INPUTS, makeRng(1));
-  assert.ok(r.capability > s.capability);
-});
-
-test('regulatory stops are DISCRETE and seeded-reproducible', () => {
-  const s = initialState(DEFAULT_INPUTS);
-  const a = stepMonetization(s, DEFAULT_INPUTS, makeRng(42));
-  const b = stepMonetization(s, DEFAULT_INPUTS, makeRng(42));
-  assert.deepEqual(a, b, 'same seed must give the same run');
-});
-
-test('a regulatory freeze suppresses revenue per MW', () => {
-  const s = initialState(DEFAULT_INPUTS);
-  const free = stepMonetization(s, { ...DEFAULT_INPUTS, regStopProbability: 0, regDragSmooth: 0 }, makeRng(7));
-  const frozen = stepMonetization(s, { ...DEFAULT_INPUTS, regStopProbability: 1, regDragSmooth: 0.3 }, makeRng(7));
-  assert.ok(frozen.labRevPerMw < free.labRevPerMw);
-});
-
-test('wtpFraction rises toward the 0.5 Dylan describes', () => {
-  const s = initialState(DEFAULT_INPUTS);
-  const r = stepMonetization(s, DEFAULT_INPUTS, makeRng(1));
-  assert.ok(r.wtpFraction > s.wtpFraction);
-  assert.ok(r.wtpFraction <= 0.6);
-});
-
-test('regStopFactor is a discrete draw, not a smooth multiplier', () => {
-  const inputs = { ...DEFAULT_INPUTS, regStopProbability: 0.25 };
-  // Draw below the threshold -> a stop fires and suppresses revenue.
-  assert.ok(regStopFactor(() => 0.10, inputs) < 1, 'a draw under the probability must fire a stop');
-  // Draw above the threshold -> no stop, factor is exactly 1 (not merely < 1).
-  assert.equal(regStopFactor(() => 0.90, inputs), 1, 'a draw over the probability must be a clean no-op');
-  // At probability 0 no draw can ever fire; at 1 every draw must.
+test('regulatory draws remain discrete and reproducible', () => {
+  assert.equal(regStopFactor(() => 0.1, DEFAULT_INPUTS), 0.75);
+  assert.equal(regStopFactor(() => 0.9, DEFAULT_INPUTS), 1);
   assert.equal(regStopFactor(() => 0.001, { ...DEFAULT_INPUTS, regStopProbability: 0 }), 1);
-  assert.ok(regStopFactor(() => 0.999, { ...DEFAULT_INPUTS, regStopProbability: 1 }) < 1);
+  assert.equal(regStopFactor(() => 0.999, { ...DEFAULT_INPUTS, regStopProbability: 1 }), 0.75);
+  const a = makeRng(42), b = makeRng(42);
+  for (let i = 0; i < 10; i++) assert.equal(a(), b());
 });
 
-test('regulatory stop channel alone suppresses revenue (independent of regDragSmooth)', () => {
-  const s = initialState(DEFAULT_INPUTS);
-  const noStop = stepMonetization(s, { ...DEFAULT_INPUTS, regStopProbability: 0, regDragSmooth: 0 }, makeRng(7));
-  const withStop = stepMonetization(s, { ...DEFAULT_INPUTS, regStopProbability: 1, regDragSmooth: 0 }, makeRng(7));
-  assert.ok(withStop.labRevPerMw < noStop.labRevPerMw, 'discrete reg stop alone must suppress revenue');
+test('provider restrictions reduce provider-funded compute but preserve direct enterprise budgets', () => {
+  const free = simulate({ ...DEFAULT_INPUTS, regStopProbability: 0, regDragSmooth: 0 }, 7)[0];
+  const frozen = simulate({ ...DEFAULT_INPUTS, regStopProbability: 1, regDragSmooth: 0.3 }, 7)[0];
+  assert.ok(frozen.commercialProviderRevenueB < free.commercialProviderRevenueB);
+  assert.ok(frozen.newGw < free.newGw);
+  const a = free.demandBreakdown.segments.find(s => s.id === 'enterprise');
+  const b = frozen.demandBreakdown.segments.find(s => s.id === 'enterprise');
+  assert.equal(a.economicValueB, b.economicValueB);
+  assert.equal(a.directComputeBudgetB, b.directComputeBudgetB);
+  assert.ok(b.providerComputeBudgetB < a.providerComputeBudgetB);
 });
 
-test('different seeds produce different monetization outcomes', () => {
-  const s = initialState(DEFAULT_INPUTS);
-  // regStopProbability strictly between 0 and 1 so the draw can actually differ.
-  const inputs = { ...DEFAULT_INPUTS, regStopProbability: 0.5 };
-  const outs = [1, 2, 3, 4, 5, 6, 7, 8].map(seed =>
-    stepMonetization(s, inputs, makeRng(seed)).labRevPerMw);
-  const distinct = new Set(outs.map(v => v.toFixed(6)));
-  assert.ok(distinct.size > 1,
-    `seeds must actually influence the outcome; all 8 gave ${outs[0]}`);
+test('seeds affect provider revenue while identical seeds reproduce the full run', () => {
+  assert.deepEqual(simulate(DEFAULT_INPUTS, 42), simulate(DEFAULT_INPUTS, 42));
+  const results = new Set([1,2,3,4,5,6,7,8].map(seed => simulate({ ...DEFAULT_INPUTS, regStopProbability: 0.5 }, seed)[0].commercialProviderRevenueB));
+  assert.ok(results.size > 1);
+});
+
+test('regulatory reductions persist into later years rather than resetting each year', () => {
+  const run = simulate({ ...DEFAULT_INPUTS, regStopProbability: 0, regDragSmooth: 0.1 }, 7);
+  const factors = [0.9, 0.81, 0.729, 0.6561, 0.59049];
+  run.forEach((y, i) => assert.ok(Math.abs(y.commercialProviderRevenueB / y.commercialProviderRevenuePoolB - factors[i]) < 1e-9));
 });

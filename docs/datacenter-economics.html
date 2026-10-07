@@ -377,6 +377,9 @@
   .diffusion-table th:first-child, .diffusion-table td:first-child { text-align:left }
   .dbound-row { background:rgba(245,158,11,0.08) }
 
+  .segment-field { display:flex; justify-content:space-between; align-items:center; gap:1rem; margin:0.5rem 0; font-size:0.75rem; }
+  .segment-field input { width:6rem; color:var(--text); background:var(--bg); border:1px solid var(--border); padding:0.3rem; }
+  .output-panel { overflow-x:auto; }
   /* Footer note */
   .footnote {
     margin-top: 3rem;
@@ -409,8 +412,8 @@
 <header>
   <h1>Datacenter Economics: A Year-by-Year Simulation</h1>
   <div class="subtitle">Supply ceilings, capital, and diffusion — simulated year by year, not fit to the source forecast</div>
-  <p class="framing-note">This model deliberately disagrees with its source in several places, most notably 2029 GW landing around 23 against a stated 95, and 2028 lab share landing around 52% against a stated 70&ndash;80% — because the diffusion ceiling caps what labs can monetize, which collapses their demand before either target is reached. Capital is <em>not</em> the cause: it binds in exactly one year (2030), which is neither of these misses. Flooding the credit market moves 2029 by 0.4&nbsp;GW of a 72&nbsp;GW gap. Those two are findings, not errors; the full picture, including compute price and cumulative capex/credit, is in Calibration vs. source below, which states plainly how many targets — and how many of the out-of-sample validators — actually pass.</p>
-  <p class="framing-note seed-note">The 2029 figure is a single seed draw (12345), not a distribution. Across seeds 1&ndash;40 it ranges 22.7&ndash;76.2 GW (3.36×) while the 2026&ndash;28 path holds for 31 of 40 draws and none reach the stated 95 — the direction (a monetization-driven shortfall) is robust; the exact magnitude is seed-sensitive.</p>
+  <p class="framing-note">Four final uses determine demand: frontier research, commercial inference, enterprise internal use, and sovereign workloads. Economic adoption, provider revenue, and compute spending are separate assumptions. Owners and rental intermediaries describe the same capacity, not additional demand.</p>
+  <p class="framing-note seed-note">Segment splits, budgets, adoption, and routing are illustrative and have not been recalibrated. Source comparisons below remain visible; they are not targets this version is tuned to hit. The provider-revenue diagnostic uses a fixed seed (12345). Deployment migration and workload efficiency use illustrative assumptions. GW is IT capacity. Funding guarantees and regional constraints remain outside this update.</p>
   <div class="sources">
     <span class="source-tag source-dylan">Dwarkesh Podcast · Dylan Patel (SemiAnalysis)</span>
   </div>
@@ -440,51 +443,10 @@
       <div class="control-note">Disputed 3x by a bottom-up die count.</div>
     </div>
 
-    <div class="control-card">
-      <div class="control-label">
-        Labs' willingness to pay (share of revenue generated)
-        <span class="control-value-display" id="wtpFraction-display">50%</span>
-      </div>
-      <input type="range" id="wtpFraction" data-input="wtpFraction" data-fmt="pct0" min="0.10" max="0.60" step="0.02" value="0.50">
-      <div class="control-range-labels"><span>10%</span><span>60%</span></div>
-    </div>
 
-    <div class="control-card">
-      <div class="control-label">
-        Growth in willingness to pay
-        <span class="control-value-display" id="wtpFractionGrowth-display">18%</span>
-      </div>
-      <input type="range" id="wtpFractionGrowth" data-input="wtpFractionGrowth" data-fmt="pct0" min="0" max="0.60" step="0.02" value="0.18">
-      <div class="control-range-labels"><span>0%</span><span>60%</span></div>
-    </div>
 
-    <div class="control-card">
-      <div class="control-label">
-        Lab compute growth (multiple/yr)
-        <span class="control-value-display" id="labGrowthRate-display">3.0×</span>
-      </div>
-      <input type="range" id="labGrowthRate" data-input="labGrowthRate" data-fmt="x" min="1.5" max="4.0" step="0.1" value="3.0">
-      <div class="control-range-labels"><span>1.5×</span><span>4.0×</span></div>
-    </div>
 
-    <div class="control-card">
-      <div class="control-label">
-        Capture rate of addressable AI value
-        <span class="control-value-display" id="captureRate-display">0.4%</span>
-      </div>
-      <input type="range" id="captureRate" data-input="captureRate" data-fmt="pct1" min="0.001" max="0.020" step="0.001" value="0.004">
-      <div class="control-range-labels"><span>0.1%</span><span>2.0%</span></div>
-      <div class="control-note">The diffusion ceiling's key input.</div>
-    </div>
 
-    <div class="control-card">
-      <div class="control-label">
-        Growth in capture rate
-        <span class="control-value-display" id="captureRateGrowth-display">35%</span>
-      </div>
-      <input type="range" id="captureRateGrowth" data-input="captureRateGrowth" data-fmt="pct0" min="0" max="0.60" step="0.05" value="0.35">
-      <div class="control-range-labels"><span>0%</span><span>60%</span></div>
-    </div>
 
     <div class="control-card">
       <div class="control-label">
@@ -512,17 +474,9 @@
       </div>
       <input type="range" id="regStopProbability" data-input="regStopProbability" data-fmt="pct0" min="0" max="1" step="0.05" value="0.25">
       <div class="control-range-labels"><span>0%</span><span>100%</span></div>
-      <div class="control-note">Discrete jurisdiction-level stops, not a smooth drag.</div>
+      <div class="control-note">Illustrative provider-revenue shock; does not model construction permitting.</div>
     </div>
 
-    <div class="control-card">
-      <div class="control-label">
-        Inference share decay
-        <span class="control-value-display" id="inferenceShareDecay-display">4%</span>
-      </div>
-      <input type="range" id="inferenceShareDecay" data-input="inferenceShareDecay" data-fmt="pct0" min="0" max="0.15" step="0.01" value="0.04">
-      <div class="control-range-labels"><span>0%</span><span>15%</span></div>
-    </div>
 
     <div class="control-card">
       <div class="control-label">Power procurement mode</div>
@@ -537,20 +491,27 @@
   </div>
 
   <div class="presets-row">
-    <button type="button" class="preset-btn" data-preset="dylan-base">Dylan base</button>
+    <button type="button" class="preset-btn" data-preset="dylan-base">Illustrative segments</button>
     <button type="button" class="preset-btn" data-preset="regulatory-freeze">Regulatory freeze</button>
     <button type="button" class="preset-btn" data-preset="capital-crunch">Capital crunch</button>
     <button type="button" class="preset-btn" data-preset="takeoff">Takeoff</button>
     <button type="button" class="preset-btn" data-preset="power-starved">Power-starved</button>
     <button type="button" class="preset-btn" data-preset="spacex-bull"
-      title="Solved-for scenario: what has to be true for a SpaceX-class $50M/MW contracted book to pencil. Requires AI capturing ~$420B/yr today against an actual $60-150B.">SpaceX $50M/MW bull</button>
+      title="Illustrative higher-monetization scenario. Revenue coverage does not establish profitability, liquidity, or solvency.">SpaceX revenue sensitivity</button>
   </div>
 </div>
 
+<div class="controls-section">
+  <h2>Final-use assumptions</h2>
+  <p class="pergw-note">Fractions use 0–1 (0.04 = 4%). Commercial and enterprise value shares partition one economic pool and cannot total more than 1. Provider revenue share plus direct compute share cannot exceed 1. Strategic budgets are independent annual funding assumptions, not evidence of secured capital.</p>
+  <p class="control-note">Open-weight migration scenarios (reset other assumptions): <button type="button" class="preset-btn" data-preset="migration-slow">Slow: 5%</button> <button type="button" class="preset-btn" data-preset="migration-moderate">Moderate: 10%</button> <button type="button" class="preset-btn" data-preset="migration-fast">Fast: 20%</button></p>
+  <div id="segment-assumptions" class="controls-grid"></div>
+  <p id="segment-error" role="alert" class="warn"></p>
+</div>
 <!-- Output panels, filled in by the wiring script below -->
 <div class="outputs">
   <section class="output-panel">
-    <h3>Value capture ladder</h3>
+    <h3>Economic rates (different denominators)</h3>
     <div id="ladder"></div>
   </section>
 
@@ -585,6 +546,8 @@
 </div>
 
 <div class="outputs">
+  <section class="output-panel span-2"><h3>Final-use demand and economics (selected year)</h3><div id="segment-demand"></div></section>
+  <section class="output-panel span-2"><h3>Hypothetical rental-book coverage</h3><div id="spacex-book"></div></section>
   <section class="output-panel">
     <h3>Bottleneck severity (selected year)</h3>
     <div id="bottleneck-panel"></div>
@@ -596,7 +559,7 @@
   </section>
 
   <section class="output-panel span-2">
-    <h3>Diffusion (Jevons) reality check</h3>
+    <h3>Commercial provider revenue diagnostic</h3>
     <div id="diffusion-panel"></div>
   </section>
 
@@ -606,7 +569,7 @@
   </section>
 
   <section class="output-panel span-2">
-    <h3>Lab compute position: Anthropic vs. OpenAI</h3>
+    <h3>Illustrative split of lab-owned capacity</h3>
     <div id="lab-comparison"></div>
   </section>
 </div>
@@ -621,6 +584,7 @@
 </div>
 
 <script src="js/rails.js"></script>
+<script src="js/demand.js"></script>
 <script src="js/presets.js"></script>
 <script src="js/engine.js"></script>
 <script src="js/market-scenarios.js"></script>
@@ -675,6 +639,8 @@ function syncControlsFromOverrides() {
     el.value = key in overrides ? overrides[key] : DEFAULT_INPUTS[key];
     refreshDisplay(el);
   });
+  document.getElementById('segment-assumptions').innerHTML = segmentAssumptionsHtml(currentInputs().demandSegments);
+  document.getElementById('segment-error').textContent = '';
   const modeSelect = document.getElementById('powerMode');
   if (modeSelect) modeSelect.value = 'powerMode' in overrides ? overrides.powerMode : DEFAULT_INPUTS.powerMode;
 }
@@ -694,9 +660,11 @@ function update() {
   document.getElementById('calibration').innerHTML = calibrationHtml(run, CALIBRATION_TARGETS, inputs, SEED);
 
   const y = yearState(run, selectedYear);
+  document.getElementById('segment-demand').innerHTML = segmentDemandHtml(y);
+  document.getElementById('spacex-book').innerHTML = spacexHtml(run);
   document.getElementById('bottleneck-panel').innerHTML = bottleneckHtml(y);
   document.getElementById('pergw-economics').innerHTML = perGwEconomicsHtml(y);
-  document.getElementById('diffusion-panel').innerHTML = diffusionHtml(run);
+  document.getElementById('diffusion-panel').innerHTML = providerRevenueHtml(run);
   document.getElementById('lab-comparison').innerHTML = labComparisonHtml(run);
 
   // Auto-select the matrix tab from the selected year's limiter, unless the
@@ -758,6 +726,23 @@ document.querySelectorAll('button[data-preset]').forEach(btn => {
     syncControlsFromOverrides();
     update();
   });
+});
+
+document.getElementById('segment-assumptions').addEventListener('change', e => {
+  const el = e.target;
+  if (!el.dataset.segment || !el.dataset.field) return;
+  const segments = currentInputs().demandSegments.map(s => s.id === el.dataset.segment
+    ? { ...s, [el.dataset.field]: el.value === '' ? NaN : Number(el.value) } : s);
+  try {
+    if (!el.checkValidity()) throw new Error('Enter a number within the displayed input limits.');
+    validateSegments(segments);
+    overrides = { ...overrides, demandSegments: segments };
+    document.getElementById('segment-error').textContent = '';
+    update();
+  } catch (error) {
+    el.value = currentInputs().demandSegments.find(s => s.id === el.dataset.segment)[el.dataset.field];
+    document.getElementById('segment-error').textContent = error.message + ' Restored the last valid value.';
+  }
 });
 
 syncControlsFromOverrides();

@@ -1,3 +1,17 @@
+---
+id: dcm:plan/2026-08-26-datacenter-dashboard-v3
+type: plan
+status: done
+repo: datacenter-modeling
+created: 2026-08-26
+updated: 2026-10-04
+tags: [dashboard, implementation-plan]
+links:
+  - repo: datacenter-modeling
+    path: docs/superpowers/specs/2026-08-26-datacenter-dashboard-v3-design.md
+    relation: implements
+---
+
 # Datacenter Dashboard v3 Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

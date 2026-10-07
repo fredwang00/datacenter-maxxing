@@ -4,19 +4,20 @@
 (function (root, factory) {
   const rails = (typeof require !== 'undefined') ? require('./rails.js') : root;
   const presets = (typeof require !== 'undefined') ? require('./presets.js') : root;
-  const api = factory(rails, presets);
+  const demandModel = (typeof require !== 'undefined') ? require('./demand.js') : root;
+  const api = factory(rails, presets, demandModel);
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else Object.assign(root, api);
-})(typeof self !== 'undefined' ? self : this, function (rails, presets) {
+})(typeof self !== 'undefined' ? self : this, function (rails, presets, demandModel) {
 
 const { RAILS, railById, initialRailPrice, sumPerGw, newStepState, railTightness } = rails;
 const { clamp, repriceContinuous, repriceStep, MEMORY_RESET_INTERVAL, TIGHTNESS_MAX } = rails;
 const { euvCeilingGw, euvToolsPerGwFromWafers } = presets;
 
+const { allocateSegments, segmentEconomics, validateSegments, deploymentProfile } = demandModel;
+
 const START_YEAR = 2026;
 const END_YEAR = 2030;
-const INSTALLED_GW_END_2025 = 50;
-const LAB_GW_END_2025 = 4;
 
 // $B per GW of datacenter load, and lead time in years.
 const POWER_MODES = {
@@ -58,6 +59,11 @@ function seedPipelines(state, inputs) {
 }
 
 function initialState(inputs) {
+  validateSegments(inputs.demandSegments);
+  const initialAllocation = allocateSegments(inputs.demandSegments.map(s => ({
+    ...s, routes: s.apiShare !== undefined ? deploymentProfile(s, 0).routes : s.routes, requestedGw: s.initialGw,
+  })), inputs.demandSegments.reduce((sum, s) => sum + s.initialGw, 0));
+  const installedGw = initialAllocation.totalGw;
   const railPrice = initialRailPrice();
   railPrice.power = POWER_MODES[inputs.powerMode].pricePerGw;
   const stepStates = {};
@@ -65,11 +71,12 @@ function initialState(inputs) {
 
   const capexPerGw = sumPerGw(railPrice);
   const state = {
-    installedGw: INSTALLED_GW_END_2025,
-    effectiveGw: INSTALLED_GW_END_2025,
-    labGw: LAB_GW_END_2025,
+    installedGw,
+    labGw: initialAllocation.byOwner.frontierLab || 0,
+    segmentCapacityGw: { ...initialAllocation.bySegment },
     computePrice: 13,
-    labRevPerMw: inputs.labRevPerMw0,
+    providerRevenuePerCommercialMw: 0,
+    providerRevenueFactor: 1,
     capexPerGw,
     rate: inputs.baseRate,
     railPrice,
@@ -78,11 +85,7 @@ function initialState(inputs) {
     hoardedStock: 0,
     cumulativeCredit: 0,
     cumulativeCapex: 0,
-    capability: 1,
     availableCapital: inputs.ecosystemCashFlow + inputs.creditMarketDepth,
-    wtpFraction: inputs.wtpFraction,
-    inferenceShare: inputs.inferenceShare,
-    captureRate: inputs.captureRate,
   };
   seedPipelines(state, inputs);
   return state;
@@ -118,22 +121,8 @@ function bindingConstraint(ceilings) {
   return best;
 }
 
-// What actually held newGw down this year. newGw = min(demand, ...ceilings), so
-// there are two cases and the tool must not confuse them:
-//
-//   - DEMAND-LIMITED: demand sits at or below EVERY ceiling. Nothing on the
-//     supply side bound; buyers simply did not want that much capacity at the
-//     clearing price. Relaxing any supply rail (or capital) changes nothing.
-//   - ceiling-limited: some rail capped the build, and the lowest one is it.
-//
-// C1 fix (final review): the year state previously emitted `bindingConstraint`
-// alone, which is argmin over ceilings and never asks about demand. That made
-// a demand-limited year report a supply rail as the cause -- 2029 at defaults
-// printed "capital" while demand was 22.7 against a 60.3 capital ceiling and
-// an 87.0 memory ceiling, and raising creditMarketDepth 2500 -> 10,000,000
-// moved the year by 0.44 GW of a 72 GW miss. The real cause is a monetization
-// collapse (the diffusion ceiling cuts labRevPerMw below the clearing price,
-// priceDamp falls to its tail, lab demand evaporates), not capital.
+// New construction is the minimum of net construction demand and the supply
+// ceilings. Released inventory does not consume new physical rails.
 function limitingFactor(demandGw, ceilings) {
   const values = Object.values(ceilings);
   const minCeiling = values.length > 0 ? Math.min(...values) : Infinity;
@@ -155,41 +144,14 @@ function physicalCeiling(ceilings) {
   return Math.min(ceilings.euv, ceilings.memory, ceilings.package, ceilings.power);
 }
 
-const ARB_SHELF_MAX_GW = 12;
-const ARB_SHELF_SHARPNESS = 6;
-// Exponent on the headroom term in priceDamp. Bounded by the calibration
-// tests: priceDamp(10, 50) must stay above 0.9 and priceDamp(49, 50) must
-// stay below 0.3, which pins this to roughly (0.31, 0.47). 0.4 sits in the
-// middle of that range.
+// A distribution of use-case values creates a smooth response around the
+// segment's mean bid. The inherited 8% tail is illustrative. A separate budget
+// constraint below prevents it from creating unfunded expansion.
 const PRICE_DAMP_EXPONENT = 0.4;
-
-// The "download Kimi weights and put it on OpenRouter" crowd. Near-infinitely
-// elastic below the floor, gone above it. Does not compete for scarce compute
-// -- it sets the floor.
-function arbitrageShelf(price, floorCost) {
-  // A non-positive floor has no denominator to measure excess against --
-  // treat the shelf as fully engaged rather than let (price - 0) / 0 poison
-  // Math.max/Math.exp with NaN.
-  if (!(floorCost > 0)) return ARB_SHELF_MAX_GW;
-  const excess = (price - floorCost) / floorCost;
-  return ARB_SHELF_MAX_GW * Math.exp(-ARB_SHELF_SHARPNESS * Math.max(0, excess));
-}
-
-// labWtp is a MEAN willingness to pay across a lab's use cases, not a hard
-// reservation price -- the distribution has a tail of uses worth far more
-// than average, so demand narrows to that tail above the mean instead of
-// vanishing. A hard zero here produced bang-bang oscillation: labs stopped
-// entirely once the diffusion ceiling cut labRevPerMw below the clearing
-// price, collapsing 2029 to the hyperscaler+hoarder floor; price then
-// crashed and labs returned the next year at ~5x volume. Fix round 2 (Task
-// 11). 0.08 was chosen over the 0.10 also tested in scratch because it gives
-// more margin on the surviving calibration tests while still eliminating the
-// hard zero; both keep the function continuous and monotonic in price.
 const LAB_TAIL_SHARE = 0.08;
 const LAB_TAIL_DECAY = 3.0;
 
-// Labs buy freely well below their willingness-to-pay and taper off above it,
-// down to a thin tail rather than a hard stop (see LAB_TAIL_SHARE above).
+// Demand tapers with price; the same response shape is used for each segment.
 function priceDamp(price, wtp) {
   if (!(wtp > 0)) return 0;
   const ratio = price / wtp;
@@ -198,73 +160,67 @@ function priceDamp(price, wtp) {
   return core + tail;
 }
 
-function computeDemand(state, inputs, year) {
-  const labWtp = state.labRevPerMw * state.wtpFraction;
-  const labDemand = state.labGw * (inputs.labGrowthRate - 1) * priceDamp(state.computePrice, labWtp);
-  const hyperscaler = inputs.hyperscalerDemandGw;
-  const hoarder = inputs.hoarderBuildGw;
-  const arbitrage = arbitrageShelf(state.computePrice, inputs.floorCost);
-  return {
-    labDemand, hyperscaler, hoarder, arbitrage, labWtp,
-    total: labDemand + hyperscaler + hoarder + arbitrage,
+function computeDemand(state, inputs, year, price = state.computePrice) {
+  const elapsed = year - START_YEAR;
+  const segments = inputs.demandSegments.map(config => {
+    const economics = segmentEconomics(config, inputs.addressableValueB, elapsed, state.providerRevenueFactor);
+    economics.providerRevenuePoolB = segmentEconomics(config, inputs.addressableValueB, elapsed).providerRevenueB;
+    const capacityGw = state.segmentCapacityGw[config.id];
+    const deployment = economics.deployment;
+    const targetGw = deployment ? deployment.requiredGw
+      : capacityGw + config.annualDemandGw * Math.pow(1 + config.demandGrowth, elapsed);
+    const desiredGw = Math.max(0, targetGw - capacityGw);
+    // Existing idle capacity need not be rented again. Owned stranded assets
+    // remain installed; retirement and vintage-specific costs are separate work.
+    const operatingGw = Math.min(capacityGw, targetGw);
+    const willingnessToPay = targetGw > 0 ? economics.computeBudgetB / targetGw : 0;
+    const affordableGw = price > 0 ? Math.max(0, economics.computeBudgetB / price - operatingGw) : desiredGw;
+    return { id: config.id, label: config.label, routes: deployment ? deployment.routes : config.routes,
+      capacityGw, desiredGw, willingnessToPay, ...economics,
+      requestedGw: Math.min(affordableGw, desiredGw * priceDamp(price, willingnessToPay)) };
+  });
+  const finalUseGw = segments.reduce((sum, s) => sum + s.requestedGw, 0);
+  const inventoryGw = inputs.hoarderBuildGw * priceDamp(price, HOARDER_INTERNAL_VALUE);
+  return { segments, finalUseGw, inventoryGw, total: finalUseGw + inventoryGw };
+}
+
+// Find the price at which aggregate final-use and inventory demand fit new
+// supply plus usable released inventory. The floor can leave supply unused.
+function clearPrice(state, inputs, year, supplyGw) {
+  const excess = price => {
+    const d = computeDemand(state, inputs, year, price);
+    const released = Math.min(d.finalUseGw, hoarderRelease(state, price));
+    return d.total - released - supplyGw;
   };
+  if (excess(inputs.floorCost) <= 0) return inputs.floorCost;
+  let lo = inputs.floorCost;
+  let hi = Math.max(lo * 2, 1);
+  while (excess(hi) > 0 && hi < 1e6) hi *= 2;
+  for (let i = 0; i < 64; i++) {
+    const mid = (lo + hi) / 2;
+    if (excess(mid) > 0) lo = mid;
+    else hi = mid;
+  }
+  return hi;
 }
 
-function clearPrice(state, inputs, demandGw, supplyGw) {
-  const labWtp = state.labRevPerMw * state.wtpFraction;
-  const ceiling = Math.max(labWtp, inputs.floorCost);
-  // T5 fix (final review): the zero-supply fallback used a bare `3`, which
-  // silently equalled rails.js's TIGHTNESS_MAX (the same "maximally tight"
-  // ceiling railTightness() clamps to for a zero rail ceiling) without
-  // saying so. Named explicitly so the two don't drift apart unnoticed.
-  const gap = supplyGw > 0 ? demandGw / supplyGw : TIGHTNESS_MAX;
-  const raw = state.computePrice * Math.pow(gap, inputs.priceElasticity);
-  const target = clamp(raw, inputs.floorCost, ceiling);
-  return state.computePrice + inputs.damping * (target - state.computePrice);
-}
-
-const HOARDER_INTERNAL_VALUE = 20;   // $M/MW Meta/SpaceX get from using it themselves
-const HOARDER_RELEASE_MAX = 0.6;     // fraction of stock releasable in one year
-
-// Ratio range over which lab share ramps from 0 to 1: labShare saturates at
-// labWtp = (1 + RANGE)x price (ratio - 1 spans this many units before hitting
-// the 1.0 clamp). This is a calibration lever -- Task 9 shrank it from 3 to
-// 1.5, the tightest constraint on hitting the 60-90% 2028 lab-share
-// acceptance target, since labs' WTP/price ratio at defaults (~2.4-3x by
-// 2028) never reached the wider range's saturation floor.
-const LAB_SHARE_SATURATION_RANGE = 1.5;
-
-// Labs outbid everyone when their willingness-to-pay clears the market price.
-function labShare(labWtp, price) {
-  if (!(price > 0)) return 1;
-  const ratio = labWtp / price;
-  return clamp((ratio - 1) / LAB_SHARE_SATURATION_RANGE, 0, 1);
-}
-
-// Hoarders sell when renting out beats using it internally. Self-limiting:
-// hoarding only pays while the spread is wide, so it damps the scarcity it
-// profits from.
+const HOARDER_INTERNAL_VALUE = 20; // illustrative internal-use value, $M/MW/year
 function hoarderRelease(state, price) {
-  const spread = (price - HOARDER_INTERNAL_VALUE) / HOARDER_INTERNAL_VALUE;
-  const fraction = clamp(spread, 0, 1) * HOARDER_RELEASE_MAX;
-  return Math.min(state.hoardedStock, state.hoardedStock * fraction);
+  const premium = Math.max(0, price / HOARDER_INTERNAL_VALUE - 1);
+  return state.hoardedStock * Math.min(1, premium) * 0.6;
 }
 
-// Hoarded GW consumed physical rails in the year they were BUILT. Releasing
-// them later is inventory changing hands, never new supply -- otherwise the
-// model manufactures capacity from nothing.
 function allocate(state, inputs, demand, supplyGw) {
-  const newGw = Math.min(demand.total, supplyGw);
-  const released = hoarderRelease(state, state.computePrice);
-  // The hoarder's own build goes to ITS inventory, not to market. Under supply
-  // constraint newGw < demand.total, so ration proportionally rather than
-  // subtracting hoarderBuildGw outright (which could exceed newGw).
-  const hoarderShare = demand.total > 0 ? demand.hoarder / demand.total : 0;
-  const hoarderGot = newGw * hoarderShare;
-  const forSale = (newGw - hoarderGot) + released;
-  const labGain = forSale * labShare(demand.labWtp, state.computePrice);
-  const hoardedStockAfter = state.hoardedStock - released + hoarderGot;
-  return { newGw, forSale, released, hoarderGot, labGain, hoardedStockAfter };
+  const released = Math.min(demand.finalUseGw, hoarderRelease(state, state.computePrice));
+  const unmetFinal = Math.max(0, demand.finalUseGw - released);
+  const constructionDemand = unmetFinal + demand.inventoryGw;
+  const newGw = Math.min(constructionDemand, Math.max(0, supplyGw));
+  const hoarderGot = constructionDemand > 0 ? newGw * demand.inventoryGw / constructionDemand : 0;
+  const forSale = newGw - hoarderGot + released;
+  const allocation = allocateSegments(demand.segments, forSale);
+  return { newGw, forSale, released, hoarderGot, allocation,
+    labGain: allocation.byOwner.frontierLab || 0,
+    hoardedStockAfter: state.hoardedStock - released + hoarderGot };
 }
 
 // I6 (final review) -- RESOLVED as a naming defect, not a units bug. This was
@@ -314,19 +270,6 @@ function stepCapital(state, inputs, capexThisYear) {
   return { credit, rate, availableCapital, cumulativeCredit, cumulativeCapex };
 }
 
-// Labs' willingness-to-pay for compute as a fraction of revenue. Dylan's source
-// figure is 0.5 (labs paying ~$50M/MW while generating ~$100M). The ceiling sits
-// above it deliberately — that snapshot is not a hard bound. Beyond roughly 0.6,
-// a lab would hand over almost all gross revenue for compute, which no operator would do.
-const WTP_FRACTION_MAX = 0.6;
-
-// Annual capability growth driven by research-compute scaling. Compounds with lab GW
-// and inverts when inference dominates (inferenceShare rising suppresses research
-// opportunity). NOT calibrated against any observed capability-gain series -- no such
-// calibration exists anywhere in this repo or its ledger, and no test pins this value.
-// It is an unsourced fitted constant; treat it as a placeholder pending a real source.
-const CAPABILITY_GAIN = 0.015;
-
 // Regulatory jurisdiction-level stops (e.g., NY EO 62, Texas ERCOT audit) fire as a
 // discrete Bernoulli draw. When a stop occurs, suppress revenue by this fraction (~25%).
 // This is a step-function mechanism, separate from regDragSmooth's smooth channel.
@@ -343,37 +286,22 @@ function makeRng(seed) {
   };
 }
 
-// Revenue cannot exceed what the economy can actually absorb. Without this the
-// model prints $7T of 2028 lab revenue -- 6% of world GDP to two firms.
-function diffusionCeiling(state, inputs) {
-  const maxLabRevenueB = inputs.addressableValueB * state.captureRate;
-  const monetizedMw = state.labGw * 1000 * state.inferenceShare;
-  if (!(monetizedMw > 0)) return Infinity;
-  return (maxLabRevenueB * 1000) / monetizedMw;
-}
-
-// Discrete, correlated jurisdiction-level stops. NY EO 62 and the Texas ERCOT
-// audit took two major markets to zero approvals three weeks apart, so the
-// observed shape is step-function and contagious, not a smooth multiplier.
+// The legacy regulatory reductions persist in provider revenue and its compute budget.
+// Splitting permitting and model-release restrictions is a separate improvement.
 function regStopFactor(rng, inputs) {
   return rng() < inputs.regStopProbability ? (1 - REG_STOP_SEVERITY) : 1;
 }
 
-function stepMonetization(state, inputs, rng) {
-  const capability = state.capability + CAPABILITY_GAIN * (1 - state.inferenceShare) * state.labGw;
-  const stop = regStopFactor(rng, inputs);
-  const grown = state.labRevPerMw * (capability / state.capability) * (1 - inputs.regDragSmooth) * stop;
-
-  const inferenceShare = Math.max(0.05, state.inferenceShare - inputs.inferenceShareDecay);
-  const captureRate = state.captureRate * (1 + inputs.captureRateGrowth);
-  const wtpFraction = Math.min(WTP_FRACTION_MAX, state.wtpFraction * (1 + inputs.wtpFractionGrowth));
-
-  const next = { ...state, inferenceShare, captureRate };
-  const diffusionCeilingMw = diffusionCeiling(next, inputs);
-  const diffusionBound = grown > diffusionCeilingMw;
-  const labRevPerMw = diffusionBound ? diffusionCeilingMw : grown;
-
-  return { labRevPerMw, capability, inferenceShare, captureRate, wtpFraction, diffusionBound, diffusionCeilingMw };
+function stepMonetization(state, inputs, year) {
+  const config = inputs.demandSegments.find(s => s.id === 'commercial');
+  const capacity = state.segmentCapacityGw.commercial || 0;
+  const pool = config ? segmentEconomics(config, inputs.addressableValueB, year - START_YEAR).providerRevenueB : 0;
+  const ceiling = capacity > 0 ? pool / capacity : 0;
+  const revenueFactor = state.providerRevenueFactor;
+  const research = state.segmentCapacityGw.research || 0;
+  return { providerRevenuePerCommercialMw: ceiling * revenueFactor, providerRevenuePoolPerMw: ceiling,
+    commercialProviderRevenueB: pool * revenueFactor,
+    commercialProviderRevenuePoolB: pool, commercialCapacityShare: capacity + research > 0 ? capacity / (capacity + research) : 0 };
 }
 
 // Repriced per year against DEMAND vs a per-rail CEILING. Only memory, package
@@ -436,6 +364,7 @@ function simulate(inputs, seed) {
   const out = [];
 
   for (let year = START_YEAR; year <= END_YEAR; year++) {
+    state.providerRevenueFactor *= (1 - inputs.regDragSmooth) * regStopFactor(rng, inputs);
     const ceilings = computeCeilings(state, inputs, year);
     // supplyGw (ALL ceilings, including capital) bounds how much can actually
     // be BUILT and ALLOCATED this year -- a capital crunch genuinely limits
@@ -445,31 +374,33 @@ function simulate(inputs, seed) {
     const physCeilGw = physicalCeiling(ceilings);
 
     const demand = computeDemand(state, inputs, year);
-    const limiter = limitingFactor(demand.total, ceilings);
-    const nextPrice = clearPrice(state, inputs, demand.total, supplyGw);
-    // Fix round 3 (Task 11): allocate() runs BEFORE state.computePrice is
-    // updated below, so it uses the PRIOR year's price (this year's opening,
-    // lagged-expectations price) -- not `nextPrice`/the emitted `computePrice`
-    // (this year's newly cleared price, which becomes NEXT year's opening
-    // price). Both are internally consistent, but an auditor recomputing
-    // labShare(labWtp, computePrice) from the emitted state alone would get a
-    // different number than labShareOfNew, with no way to tell why. Capture
-    // the price actually used for allocation so the state table can show
-    // both. Do not reorder simulate(): allocating at the prevailing price and
-    // then repricing for next year is the correct sequence.
+    const constructionDemand = demand.total - Math.min(demand.finalUseGw, hoarderRelease(state, state.computePrice));
+    const limiter = limitingFactor(constructionDemand, ceilings);
+    const nextPrice = clearPrice(state, inputs, year, supplyGw);
+    // Retain the annual price lag: allocation uses the opening price, while
+    // the aggregate clearing result becomes next year's opening price.
     const clearingPrice = state.computePrice;
     const alloc = allocate(state, inputs, demand, supplyGw);
 
-    const railStep = stepRails(state, inputs, demand.total, ceilings, physCeilGw);
+    const railStep = stepRails(state, inputs, constructionDemand, ceilings, physCeilGw);
     const capex = alloc.newGw * railStep.capexPerGw;
     const cap = stepCapital(state, inputs, capex);
-    const mon = stepMonetization(state, inputs, rng);
+    for (const [id, gw] of Object.entries(alloc.allocation.bySegment)) state.segmentCapacityGw[id] += gw;
+    for (const segment of demand.segments) {
+      if (!segment.deployment) continue;
+      const required = segment.deployment.requiredGw;
+      const budgetCapacity = clearingPrice > 0 ? segment.computeBudgetB / clearingPrice : Infinity;
+      const servedGw = Math.min(required, state.segmentCapacityGw[segment.id], budgetCapacity);
+      segment.servedTaskIndex = required > 0 ? segment.deployment.taskIndex * servedGw / required : segment.deployment.taskIndex;
+      segment.unmetTaskIndex = segment.deployment.taskIndex - segment.servedTaskIndex;
+      segment.idleGw = Math.max(0, state.segmentCapacityGw[segment.id] - servedGw);
+    }
+    const mon = stepMonetization(state, inputs, year);
 
     const clamped = supplyGw <= 0 || nextPrice <= inputs.floorCost;
 
     state.computePrice = nextPrice;
     state.installedGw += alloc.newGw;
-    state.effectiveGw += alloc.newGw * (1 + 0.35 * (year - START_YEAR));
     state.labGw += alloc.labGain;
     state.hoardedStock = alloc.hoardedStockAfter;
     state.railPrice = railStep.railPrice;
@@ -479,19 +410,19 @@ function simulate(inputs, seed) {
     state.cumulativeCapex = cap.cumulativeCapex;
     state.rate = cap.rate;
     state.availableCapital = cap.availableCapital;
-    state.labRevPerMw = mon.labRevPerMw;
-    state.capability = mon.capability;
-    state.inferenceShare = mon.inferenceShare;
-    state.captureRate = mon.captureRate;
-    state.wtpFraction = mon.wtpFraction;
+    state.providerRevenuePerCommercialMw = mon.providerRevenuePerCommercialMw;
+    state.commercialCapacityShare = mon.commercialCapacityShare;
 
     out.push({
       // `limiter` (not the old `binding`) is what actually held newGw down:
       // 'demand' when buyers wanted less than every ceiling allowed,
       // otherwise the lowest ceiling. See limitingFactor().
       year, limiter, supplyGw, clamped,
-      demand: demand.total,
-      demandBreakdown: { ...demand },
+      demand: constructionDemand,
+      demandBreakdown: demand,
+      segmentCapacityGw: { ...state.segmentCapacityGw },
+      allocation: alloc.allocation,
+      releasedGw: alloc.released,
       ceilings: { ...ceilings },
       newGw: alloc.newGw,
       hoarderGot: alloc.hoarderGot,
@@ -515,18 +446,12 @@ function simulate(inputs, seed) {
       cumulativeCredit: state.cumulativeCredit,
       rate: state.rate,
       labGw: state.labGw,
-      labRevPerMw: state.labRevPerMw,
-      effectiveGw: state.effectiveGw,
+      providerRevenuePerCommercialMw: state.providerRevenuePerCommercialMw,
       hoardedStock: state.hoardedStock,
-      // Fix round 1 (Task 11): inferenceShare and captureRate drove the
-      // diffusion ceiling internally but were never emitted, so the ceiling
-      // was unauditable from the output, the renderers couldn't display
-      // either, and Dylan's non-consensus "inference share falls" call was
-      // invisible in a tool built partly to test it.
-      inferenceShare: state.inferenceShare,
-      captureRate: state.captureRate,
-      diffusionCeilingMw: mon.diffusionCeilingMw,
-      diffusionBound: mon.diffusionBound,
+      commercialCapacityShare: state.commercialCapacityShare,
+      commercialProviderRevenueB: mon.commercialProviderRevenueB,
+      commercialProviderRevenuePoolB: mon.commercialProviderRevenuePoolB,
+      providerRevenuePoolPerMw: mon.providerRevenuePoolPerMw,
       railPrice: { ...railStep.railPrice },
       railTightness: { ...railStep.tightness },
     });
@@ -587,20 +512,13 @@ function impliedCreditDepthFor(targetGw, year, inputs, seed) {
 // SpaceX-class hoarder book. Diagnostic on top of a run, same shape as
 // impliedCreditDepthFor -- it does not feed the simulation.
 //
-// The reported SpaceX rate is ~$50M/MW/yr against pure-rental peers at $9-14M.
-// Two claims about that premium are in tension, and separating them is the
-// whole point of this scenario:
-//
-//   BULL: sub-one-year REVENUE payback. At $50M/MW/yr against a ~$38B/GW build
-//         cost, year-one contract revenue exceeds the capex outright. True, and
-//         `spacexPayback` computes it.
-//   BEAR: counterparty coverage. Whoever pays $50M/MW must GENERATE more than
-//         $50M/MW. This model's diffusion ceiling puts lab revenue per MW at
-//         $27-49M, so the payback is fast only if the customer keeps paying --
-//         and `coverage` below 1.0 says it is paying more than it earns.
-//
-// A fast payback and an insolvent counterparty are not contradictory; they are
-// the same deal seen from the two sides. The 1999 telecom parallel is exact.
+// This is a hypothetical rental book, not a disclosed SpaceX contract portfolio.
+// Revenue payback compares annual rent with construction cost; it excludes
+// operating expenses and collection. Revenue coverage compares modeled customer
+// AI revenue with rent. A shortfall can be funded by cash, other businesses or
+// financing. Neither measure establishes profitability, liquidity, insolvency,
+// probability of default, or expected credit loss.
+// The internal-use value is an illustrative alternative use, not a cash guarantee.
 //
 // UNITS -- read before editing (see rails.js for the guard this respects):
 //   contractPriceMw is $M/MW/YEAR, a REVENUE RATE. That is the spec's third
@@ -613,8 +531,8 @@ function impliedCreditDepthFor(targetGw, year, inputs, seed) {
 //   duration. Do not add these two quantities.
 const SPACEX_DEFAULTS = {
   contractPriceMw: 50,          // $M/MW/yr -- the reported SpaceX rate
-  termYears: 5,                 // multi-year take-or-pay contracts
-  gwPerYear: 4,                 // GW newly contracted each year
+  termYears: 5,                 // illustrative contract duration
+  gwPerYear: 4,                 // illustrative GW newly contracted each year
   startYear: START_YEAR,
 };
 
@@ -628,11 +546,11 @@ function spacexPayback(capexPerGw, contractPriceMw) {
 }
 
 // The highest contract price the customer can cover in EVERY year of the run.
-// It is the minimum of customer revenue per MW, not the mean: a book is only as
-// sound as its worst year, because that is when renewal and default happen.
+// This is a revenue-only threshold, before any other customer expenses; it
+// does not predict default or imply that cash reserves cannot bridge a gap.
 function coverableContractPrice(run) {
   if (!run || run.length === 0) return 0;
-  return Math.min(...run.map(y => y.labRevPerMw));
+  return Math.min(...run.map(y => y.providerRevenuePerCommercialMw));
 }
 
 // Per-year book: GW under contract by vintage, revenue, and whether the
@@ -653,20 +571,20 @@ function spacexBook(run, opts) {
     // $M/MW/yr x GW == $B/yr (1 $M/MW == 1 $B/GW).
     const revenueB = bookGw * Math.max(0, price);
     // Coverage > 1 means the customer earns more per MW than it owes.
-    const coverage = price > 0 ? y.labRevPerMw / price : Infinity;
+    const coverage = price > 0 ? y.providerRevenuePerCommercialMw / price : Infinity;
     const covered = coverage >= 1;
-    const atRiskB = covered ? 0 : revenueB * (1 - coverage);
+    const operatingShortfallB = covered ? 0 : revenueB * (1 - coverage);
 
     rows.push({
       year: y.year,
       bookGw,
       revenueB,
-      customerRevPerMw: y.labRevPerMw,
+      customerRevPerMw: y.providerRevenuePerCommercialMw,
       coverage,
       covered,
-      atRiskB,
+      operatingShortfallB,
       // If renting out stops clearing, the hoarder falls back to internal use
-      // (xAI/Grok for SpaceX, ads/ranking for Meta). A floor, not a substitute.
+      // (xAI/Grok for SpaceX, ads/ranking for Meta). An assumption, not a guarantee.
       internalFallbackB: bookGw * HOARDER_INTERNAL_VALUE,
     });
   }
@@ -684,10 +602,10 @@ function spacexSummary(run, opts) {
     maxCoverablePriceMw: coverableContractPrice(run),
     internalFallbackMw: HOARDER_INTERNAL_VALUE,
     yearsCovered: covered.length,
-    yearsAtRisk: rows.length - covered.length,
+    yearsWithOperatingShortfall: rows.length - covered.length,
     minCoverage: Math.min(...rows.map(r => r.coverage)),
     totalRevenueB: rows.reduce((a, r) => a + r.revenueB, 0),
-    totalAtRiskB: rows.reduce((a, r) => a + r.atRiskB, 0),
+    totalOperatingShortfallB: rows.reduce((a, r) => a + r.operatingShortfallB, 0),
     rows,
   };
 }
@@ -731,10 +649,10 @@ return {
   START_YEAR, END_YEAR, POWER_MODES, PIPELINE_BASE, PIPELINE_GROWTH,
   initialState, seedPipelines, computeCeilings, bindingConstraint, limitingFactor,
   physicalCeiling, pipelineCapacity,
-  arbitrageShelf, priceDamp, LAB_TAIL_SHARE, LAB_TAIL_DECAY, computeDemand, clearPrice,
-  labShare, hoarderRelease, allocate, LAB_SHARE_SATURATION_RANGE,
+  priceDamp, LAB_TAIL_SHARE, LAB_TAIL_DECAY, computeDemand, clearPrice,
+  hoarderRelease, allocate,
   termPremium, creditCapacity, stepCapital, RATE_MAX,
-  makeRng, diffusionCeiling, regStopFactor, stepMonetization,
+  makeRng, regStopFactor, stepMonetization,
   stepRails, stepBullwhip, BULLWHIP_GAIN, simulate, impliedCreditDepthFor,
   HISTORICAL_START, backtest,
   SPACEX_DEFAULTS, HOARDER_INTERNAL_VALUE, spacexPayback, coverableContractPrice,
